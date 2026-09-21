@@ -79,3 +79,6 @@ pgdata/
 # Session artefacts, not part of the project
 # ---------------------------------------------------------------------------
 Claude outputs/
+
+# jqwik records failed property samples here to replay them; runtime state, not source.
+backend/.jqwik-database
