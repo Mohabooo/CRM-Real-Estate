@@ -62,7 +62,8 @@ class RlsIsolationIT extends AbstractPostgresIT {
                         END $$;""".formatted(PROBE_ROLE, PROBE_ROLE));
                 setup.execute("GRANT USAGE ON SCHEMA public TO " + PROBE_ROLE);
                 setup.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, branches, users, "
-                        + "invitations, audit_events TO " + PROBE_ROLE);
+                        + "invitations, audit_events, leads, customers, activities TO "
+                        + PROBE_ROLE);
                 setup.execute("SET ROLE " + PROBE_ROLE);
                 setup.execute("SET app.current_tenant_id = '" + tenantId + "'");
             }
@@ -179,6 +180,95 @@ class RlsIsolationIT extends AbstractPostgresIT {
             }
         });
         assertThat(failure).contains("row-level security");
+    }
+
+    @Test
+    @DisplayName("Epic 2's tables are isolated by the database too")
+    void crm_tables_are_isolated() {
+        var tenants = provisionTwo();
+
+        // Inserted outside the probe, so both rows genuinely exist. The connection the
+        // application uses in tests is a superuser and therefore exempt from RLS, which is
+        // exactly why the assertions below are made as the probe role instead.
+        UUID leadOfA = insertLead(tenants.a(), "Lead in A", "+201000000001");
+        UUID leadOfB = insertLead(tenants.b(), "Lead in B", "+201000000002");
+        UUID customerOfB = insertCustomer(tenants.b(), "Customer in B", "+201000000003");
+        insertActivity(tenants.b(), leadOfB);
+
+        asUnprivilegedRole(tenants.a(), connection -> {
+            assertThat(count(connection,
+                    "SELECT count(*) FROM leads WHERE id = '" + leadOfB + "'")).isZero();
+            assertThat(count(connection,
+                    "SELECT count(*) FROM customers WHERE id = '" + customerOfB + "'")).isZero();
+            assertThat(count(connection,
+                    "SELECT count(*) FROM activities WHERE subject_id = '" + leadOfB + "'"))
+                    .isZero();
+
+            // A's own lead is still visible, so the policy filters rather than denying.
+            assertThat(count(connection,
+                    "SELECT count(*) FROM leads WHERE id = '" + leadOfA + "'")).isEqualTo(1);
+            return null;
+        });
+
+        // A cross-tenant write changes nothing and raises nothing: RLS makes B's rows
+        // invisible, and an UPDATE cannot touch what it cannot see.
+        int updated = asUnprivilegedRole(tenants.a(), connection -> {
+            try (Statement statement = connection.createStatement()) {
+                return statement.executeUpdate(
+                        "UPDATE leads SET name = 'taken over' WHERE id = '" + leadOfB + "'");
+            }
+        });
+        assertThat(updated).isZero();
+        assertThat(jdbc.queryForObject("SELECT name FROM leads WHERE id = ?", String.class,
+                leadOfB)).isEqualTo("Lead in B");
+
+        int deleted = asUnprivilegedRole(tenants.a(), connection -> {
+            try (Statement statement = connection.createStatement()) {
+                return statement.executeUpdate(
+                        "DELETE FROM customers WHERE id = '" + customerOfB + "'");
+            }
+        });
+        assertThat(deleted).isZero();
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM customers WHERE id = ?", Long.class,
+                customerOfB)).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("a lead cannot be smuggled into another tenant by naming its id")
+    void cross_tenant_lead_insert_is_refused() {
+        var tenants = provisionTwo();
+        String failure = asUnprivilegedRole(tenants.a(), connection -> {
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate(
+                        "INSERT INTO leads (tenant_id, name, phone, phone_normalized, stage, "
+                                + "status) VALUES ('" + tenants.b() + "', 'smuggled', "
+                                + "'+201000000009', '+201000000009', 'new', 'active')");
+                return null;
+            } catch (SQLException e) {
+                return e.getMessage();
+            }
+        });
+        assertThat(failure).contains("row-level security");
+    }
+
+    private UUID insertLead(UUID tenantId, String name, String phone) {
+        return jdbc.queryForObject(
+                "INSERT INTO leads (tenant_id, name, phone, phone_normalized, stage, status) "
+                        + "VALUES (?, ?, ?, ?, 'new', 'active') RETURNING id",
+                UUID.class, tenantId, name, phone, phone);
+    }
+
+    private UUID insertCustomer(UUID tenantId, String name, String phone) {
+        return jdbc.queryForObject(
+                "INSERT INTO customers (tenant_id, name_en, phone, phone_normalized, status) "
+                        + "VALUES (?, ?, ?, ?, 'active') RETURNING id",
+                UUID.class, tenantId, name, phone, phone);
+    }
+
+    private void insertActivity(UUID tenantId, UUID leadId) {
+        jdbc.update("INSERT INTO activities (tenant_id, subject_type, subject_id, type, body, "
+                        + "occurred_at) VALUES (?, 'Lead', ?, 'call', 'spoke', now())",
+                tenantId, leadId);
     }
 
     @Test

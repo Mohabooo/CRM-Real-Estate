@@ -12,8 +12,12 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /**
- * Verifies that migrations apply cleanly and that Epic 0 created the foundation — and only
- * the foundation.
+ * Verifies that migrations apply cleanly and that the schema contains exactly the tables the
+ * implemented epics own — no more.
+ *
+ * <p>The "no more" half is the one that earns its keep. It is easy, while building one epic,
+ * to add the table a later epic will need because it is obviously coming; the result is a
+ * schema nobody can date and a migration nobody can review against a story.
  */
 @DisplayName("Flyway migrations")
 class FlywayMigrationIT extends AbstractPostgresIT {
@@ -22,13 +26,13 @@ class FlywayMigrationIT extends AbstractPostgresIT {
     private JdbcTemplate jdbc;
 
     @Test
-    @DisplayName("V1 applied successfully")
-    void baseline_migration_applied() {
+    @DisplayName("every migration to date applied successfully")
+    void migrations_applied() {
         List<String> versions = jdbc.queryForList(
                 "SELECT version FROM flyway_schema_history WHERE success = true ORDER BY installed_rank",
                 String.class);
 
-        assertThat(versions).contains("1");
+        assertThat(versions).containsExactly("1", "2", "3");
     }
 
     @Test
@@ -66,34 +70,39 @@ class FlywayMigrationIT extends AbstractPostgresIT {
     }
 
     @Test
-    @DisplayName("only Epic 1's tables exist; nothing from a later epic has leaked in")
-    void only_epic_one_tables_exist() {
+    @DisplayName("only the implemented epics' tables exist; nothing later has leaked in")
+    void only_implemented_tables_exist() {
         List<String> tables = jdbc.queryForList(
                 "SELECT table_name FROM information_schema.tables "
                         + "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'",
                 String.class);
 
-        // Updated for Epic 1, which owns exactly these five. The test keeps its original
-        // purpose: catching a later epic's work leaking into this one.
+        // Epic 1 owns the first five; Epic 2 adds leads, customers and activities.
+        //
+        // 'tasks' is deliberately absent. Doc 23 lists no /tasks endpoint and no Epic 2 story
+        // needs one, so it belongs to whichever epic first has a use for it rather than being
+        // created now on the strength of the word appearing in a diagram.
         assertThat(tables).containsExactlyInAnyOrder(
                 "flyway_schema_history",
-                "tenants", "branches", "users", "invitations", "audit_events");
+                "tenants", "branches", "users", "invitations", "audit_events",
+                "leads", "customers", "activities");
 
         assertThat(tables)
                 .as("no later epic's table may appear before its epic")
-                .doesNotContain("leads", "customers", "activities", "tasks",
+                .doesNotContain("tasks",
                         "developers", "projects", "phases", "units", "reservations", "deals",
                         "payment_plan_templates", "customer_payment_plans", "installments",
                         "payments", "payment_allocations", "commissions", "commission_rules");
     }
 
     @Test
-    @DisplayName("every Epic 1 table enforces row-level security, owner included")
+    @DisplayName("every business table enforces row-level security, owner included")
     void every_table_forces_row_level_security() {
         List<String> unprotected = jdbc.queryForList(
                 "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
                         + "WHERE n.nspname = 'public' AND c.relkind = 'r' "
-                        + "AND relname IN ('tenants','branches','users','invitations','audit_events') "
+                        + "AND relname IN ('tenants','branches','users','invitations',"
+                        + "'audit_events','leads','customers','activities') "
                         + "AND (c.relrowsecurity = false OR c.relforcerowsecurity = false)",
                 String.class);
 
