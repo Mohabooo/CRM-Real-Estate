@@ -19,5 +19,22 @@ public enum AuditAction {
     USER_DEACTIVATED,
     USER_REACTIVATED,
     INVITATION_ISSUED,
-    INVITATION_ACCEPTED
+    INVITATION_ACCEPTED,
+
+    // Epic 2 — CRM core. Doc 18 section 1 marks assignment, conversion, disqualification and
+    // reactivation as audited; the rest are here because a record that can change owner or
+    // contact details without a trail cannot be reconciled later.
+    LEAD_CAPTURED,
+    LEAD_ASSIGNED,
+    LEAD_BULK_REASSIGNED,
+    LEAD_CONTACTED,
+    LEAD_QUALIFIED,
+    LEAD_DISQUALIFIED,
+    LEAD_REACTIVATED,
+    LEAD_CONVERTED,
+    LEAD_UPDATED,
+    CUSTOMER_CREATED,
+    CUSTOMER_UPDATED,
+    CUSTOMER_NATIONAL_ID_ACCESSED,
+    ACTIVITY_LOGGED
 }
