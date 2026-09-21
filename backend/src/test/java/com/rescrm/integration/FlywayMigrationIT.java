@@ -66,24 +66,40 @@ class FlywayMigrationIT extends AbstractPostgresIT {
     }
 
     @Test
-    @DisplayName("no business tables exist yet")
-    void no_business_tables_created() {
+    @DisplayName("only Epic 1's tables exist; nothing from a later epic has leaked in")
+    void only_epic_one_tables_exist() {
         List<String> tables = jdbc.queryForList(
                 "SELECT table_name FROM information_schema.tables "
                         + "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'",
                 String.class);
 
-        // Epic 0 is the technical foundation. If any of these appear, a later epic's work has
-        // leaked into it — which is exactly what this test is here to catch.
-        assertThat(tables)
-                .as("Epic 0 must not create business tables")
-                .doesNotContain("tenants", "users", "branches", "leads", "customers",
-                        "developers", "projects", "units", "reservations", "deals",
-                        "payment_plan_templates", "customer_payment_plans", "installments",
-                        "payments", "payment_allocations", "commissions", "commission_rules",
-                        "audit_events");
+        // Updated for Epic 1, which owns exactly these five. The test keeps its original
+        // purpose: catching a later epic's work leaking into this one.
+        assertThat(tables).containsExactlyInAnyOrder(
+                "flyway_schema_history",
+                "tenants", "branches", "users", "invitations", "audit_events");
 
-        assertThat(tables).containsExactlyInAnyOrder("flyway_schema_history");
+        assertThat(tables)
+                .as("no later epic's table may appear before its epic")
+                .doesNotContain("leads", "customers", "activities", "tasks",
+                        "developers", "projects", "phases", "units", "reservations", "deals",
+                        "payment_plan_templates", "customer_payment_plans", "installments",
+                        "payments", "payment_allocations", "commissions", "commission_rules");
+    }
+
+    @Test
+    @DisplayName("every Epic 1 table enforces row-level security, owner included")
+    void every_table_forces_row_level_security() {
+        List<String> unprotected = jdbc.queryForList(
+                "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
+                        + "WHERE n.nspname = 'public' AND c.relkind = 'r' "
+                        + "AND relname IN ('tenants','branches','users','invitations','audit_events') "
+                        + "AND (c.relrowsecurity = false OR c.relforcerowsecurity = false)",
+                String.class);
+
+        // FORCE matters as much as ENABLE: without it the owning role bypasses its own
+        // policies, and in development that role is the one the application connects as.
+        assertThat(unprotected).isEmpty();
     }
 
     @Test

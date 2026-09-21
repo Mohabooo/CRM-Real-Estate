@@ -210,16 +210,35 @@ jobs:
           -Dflyway.user=crm
           -Dflyway.password=crm
 
-      # Epic 0 creates no business tables. This is the same assertion FlywayMigrationIT
-      # makes, repeated against a plain server so it holds independently of the test harness.
-      - name: Gate - the baseline created no business tables
+      # The schema must contain exactly the epics implemented so far and nothing from a
+      # later one. This is the same assertion FlywayMigrationIT makes, repeated against a
+      # plain server so it holds independently of the test harness. Update it when an epic
+      # lands, deliberately: that edit is the record that new tables were intended.
+      - name: Gate - the schema contains only the implemented epics
         run: |
-          TABLES=$(PGPASSWORD=crm psql -h localhost -U crm -d crm -tAc \
+          EXPECTED="audit_events branches flyway_schema_history invitations tenants users"
+          ACTUAL=$(PGPASSWORD=crm psql -h localhost -U crm -d crm -tAc \
             "SELECT table_name FROM information_schema.tables \
              WHERE table_schema='public' AND table_type='BASE TABLE' \
-             ORDER BY table_name")
-          echo "tables present: ${TABLES:-<none>}"
-          if [ "$TABLES" != "flyway_schema_history" ]; then
-            echo "::error::Epic 0 must create only flyway_schema_history."
+             ORDER BY table_name" | tr '\n' ' ' | sed 's/ $//')
+          echo "expected: $EXPECTED"
+          echo "actual:   $ACTUAL"
+          if [ "$ACTUAL" != "$EXPECTED" ]; then
+            echo "::error::Schema does not match the implemented epics (Epic 0 + Epic 1)."
             exit 1
           fi
+
+      # Row-level security is the database half of the two-layer isolation design. ENABLE
+      # alone is not enough: without FORCE the owning role bypasses its own policies.
+      - name: Gate - row-level security is enabled and forced on every business table
+        run: |
+          UNPROTECTED=$(PGPASSWORD=crm psql -h localhost -U crm -d crm -tAc \
+            "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace \
+             WHERE n.nspname='public' AND c.relkind='r' \
+             AND relname <> 'flyway_schema_history' \
+             AND (c.relrowsecurity = false OR c.relforcerowsecurity = false)")
+          if [ -n "$UNPROTECTED" ]; then
+            echo "::error::Tables without ENABLE+FORCE row level security: $UNPROTECTED"
+            exit 1
+          fi
+          echo "every business table has row-level security enabled and forced"
