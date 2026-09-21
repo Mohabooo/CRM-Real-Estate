@@ -1,0 +1,262 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.4</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>com.rescrm</groupId>
+    <artifactId>crm-backend</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+    <name>Real Estate Sales and Collections Platform - Backend</name>
+    <description>Modular monolith backend. Epic 0: technical foundation only.</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <archunit.version>1.3.0</archunit.version>
+        <jqwik.version>1.9.0</jqwik.version>
+        <testcontainers.version>1.20.1</testcontainers.version>
+
+        <!--
+          Docker 29 raised the minimum Engine API version it will answer. Left to
+          negotiate, the client Testcontainers uses picks a version Docker 29 rejects:
+          the daemon answers /info with HTTP 400 and an all empty body, and
+          Testcontainers reports "Could not find a valid Docker environment" even though
+          the socket is reachable and the docker CLI works fine against it.
+          Pinning the API version is the documented workaround.
+          See testcontainers-java issue 11212.
+        -->
+        <docker.api.version>1.44</docker.api.version>
+
+        <!--
+          Embedded PostgreSQL: a real postgres server run as a local process, used when no
+          Docker daemon is usable. Binaries are declared per platform rather than pulling
+          the full bundle, which carries every platform at once.
+        -->
+        <embedded.postgres.version>2.2.2</embedded.postgres.version>
+        <embedded.postgres.binaries.version>16.1.0</embedded.postgres.binaries.version>
+
+        <!--
+          embedded-postgres pulls a commons-compress that calls a commons-lang3 method
+          added in 3.17. Spring Boot manages an older commons-lang3 and that older jar
+          wins on the classpath, so unpacking the PostgreSQL binaries dies with
+          NoSuchMethodError on SystemProperties.getUserName. commons-compress is not
+          managed by Spring Boot, so raising commons-lang3 is what keeps the pair in step.
+        -->
+        <commons-lang3.version>3.20.0</commons-lang3.version>
+
+        <!--
+          Pinned so the flyway-maven-plugin and the runtime library cannot drift apart.
+          Spring Boot's dependency management supplies these versions to the dependencies
+          above; the plugin is outside that management and needs them stated.
+        -->
+        <flyway.version>10.17.3</flyway.version>
+        <postgresql.version>42.7.4</postgresql.version>
+    </properties>
+
+    <dependencies>
+        <!-- Web + API -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
+
+        <!-- Health / readiness -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Persistence. No entities exist yet in Epic 0; the starter is present so the
+             DataSource, transaction manager and Flyway integration are wired and verified. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-jpa</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Migrations: forward-only, reviewed as SQL (doc 28, section 5) -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+        </dependency>
+
+        <!-- Test scope -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Architecture rules are build-breaking by design (doc 28, decision A15) -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Property-based testing for the financial invariants (doc 29, FIN-018) -->
+        <dependency>
+            <groupId>net.jqwik</groupId>
+            <artifactId>jqwik</artifactId>
+            <version>${jqwik.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Integration tests run against a real PostgreSQL; constraints cannot be
+             verified against an in-memory database (doc 28, section 14) -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <version>${testcontainers.version}</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Fallback when Docker is unavailable. Still a real PostgreSQL 16. -->
+        <dependency>
+            <groupId>io.zonky.test</groupId>
+            <artifactId>embedded-postgres</artifactId>
+            <version>${embedded.postgres.version}</version>
+            <scope>test</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>io.zonky.test.postgres</groupId>
+                    <artifactId>embedded-postgres-binaries-bundle</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>io.zonky.test.postgres</groupId>
+            <artifactId>embedded-postgres-binaries-darwin-arm64v8</artifactId>
+            <version>${embedded.postgres.binaries.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>io.zonky.test.postgres</groupId>
+            <artifactId>embedded-postgres-binaries-linux-amd64</artifactId>
+            <version>${embedded.postgres.binaries.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+
+            <!-- Unit tests: fast, no infrastructure. Includes architecture and
+                 property-based tests so a boundary violation fails the quick loop. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>**/*IT.java</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+
+            <!-- Integration tests: require Docker for Testcontainers. Bound to verify. -->
+            <!--
+              Lets CI apply migrations to a clean database without starting the application,
+              which catches a migration that only works because a developer's local database
+              already contained the object it creates.
+
+              Usage: mvn flyway:migrate -Dflyway.url=... -Dflyway.user=... -Dflyway.password=...
+            -->
+            <plugin>
+                <groupId>org.flywaydb</groupId>
+                <artifactId>flyway-maven-plugin</artifactId>
+                <version>${flyway.version}</version>
+                <configuration>
+                    <locations>
+                        <location>filesystem:src/main/resources/db/migration</location>
+                    </locations>
+                    <cleanDisabled>true</cleanDisabled>
+                </configuration>
+                <dependencies>
+                    <dependency>
+                        <groupId>org.flywaydb</groupId>
+                        <artifactId>flyway-database-postgresql</artifactId>
+                        <version>${flyway.version}</version>
+                    </dependency>
+                    <dependency>
+                        <groupId>org.postgresql</groupId>
+                        <artifactId>postgresql</artifactId>
+                        <version>${postgresql.version}</version>
+                    </dependency>
+                </dependencies>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*IT.java</include>
+                    </includes>
+                    <systemPropertyVariables>
+                        <api.version>${docker.api.version}</api.version>
+                    </systemPropertyVariables>
+                </configuration>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!--
+          Allows the unit-test loop to run where Docker is unavailable:
+              mvn verify -DskipITs
+          Integration tests are never silently skipped in CI.
+        -->
+        <profile>
+            <id>skip-its</id>
+            <activation>
+                <property>
+                    <name>skipITs</name>
+                </property>
+            </activation>
+            <properties>
+                <skipITs>true</skipITs>
+            </properties>
+        </profile>
+    </profiles>
+</project>

@@ -1,0 +1,225 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A superseded run on the same branch tells you nothing useful.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  JAVA_VERSION: '21'
+  NODE_VERSION: '22'
+
+jobs:
+  backend:
+    name: Backend (compile, unit, architecture, property, integration)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+
+      # Doc 28 section 14 names Testcontainers as the CI path. The suite can fall back to an
+      # embedded PostgreSQL where no Docker is reachable, which is correct on a developer
+      # machine and wrong here: silently falling back would let the documented CI path rot
+      # while the build stayed green.
+      - name: Require a working Docker daemon
+        run: docker info
+
+      # One invocation covers compile, surefire (unit, ArchUnit, jqwik) and failsafe
+      # (Testcontainers integration tests). Splitting it would run the unit tests twice.
+      # shell: bash is explicit so pipefail applies and a Maven failure is not swallowed
+      # by tee, which the default shell would do.
+      - name: Build and test
+        working-directory: backend
+        shell: bash
+        run: mvn -B -ntp clean verify | tee "$RUNNER_TEMP/backend-build.log"
+
+      - name: Gate - integration tests ran and passed
+        working-directory: backend
+        run: |
+          python3 - <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          summary = Path("target/failsafe-reports/failsafe-summary.xml")
+          if not summary.exists():
+              sys.exit("No failsafe summary. Integration tests did not run at all.")
+
+          root = ET.parse(summary).getroot()
+          completed = int(root.findtext("completed", "0"))
+          failures = int(root.get("failures", "0"))
+          errors = int(root.get("errors", "0"))
+          print(f"integration tests: completed={completed} failures={failures} errors={errors}")
+
+          if completed == 0:
+              sys.exit("Integration tests were skipped. CI must never skip them.")
+          if failures or errors:
+              sys.exit("Integration tests reported failures.")
+          PY
+
+      - name: Gate - architecture rules were enforced
+        working-directory: backend
+        run: |
+          python3 - <<'PY'
+          import sys, xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          report = Path("target/surefire-reports/TEST-com.rescrm.architecture.ArchitectureTest.xml")
+          if not report.exists():
+              sys.exit("ArchitectureTest did not run. The architecture rules are the guard "
+                       "on module boundaries and commercial-model containment; a build "
+                       "without them proves nothing.")
+
+          root = ET.parse(report).getroot()
+          tests = int(root.get("tests", "0"))
+          failures = int(root.get("failures", "0"))
+          errors = int(root.get("errors", "0"))
+          skipped = int(root.get("skipped", "0"))
+          print(f"architecture rules: tests={tests} failures={failures} "
+                f"errors={errors} skipped={skipped}")
+
+          if tests == 0 or tests == skipped:
+              sys.exit("No architecture rule actually executed.")
+          if failures or errors:
+              sys.exit("Architecture rules were violated.")
+          PY
+
+      # AbstractPostgresIT announces which of its three sources supplied the database.
+      # Evidence of a fallback here means Docker was reachable but Testcontainers was not
+      # used, which is exactly the silent drift the Docker precondition above cannot catch.
+      - name: Gate - the Testcontainers path was used, not a fallback
+        shell: bash
+        run: |
+          LOG="$RUNNER_TEMP/backend-build.log"
+          if grep -q "using an embedded PostgreSQL" "$LOG"; then
+            echo "::error::Integration tests fell back to the embedded PostgreSQL. CI must use Testcontainers."
+            exit 1
+          fi
+          if grep -q "using throwaway database" "$LOG"; then
+            echo "::error::Integration tests used an externally supplied database. CI must use Testcontainers."
+            exit 1
+          fi
+          if grep -q "using a Testcontainers PostgreSQL" "$LOG"; then
+            echo "Confirmed: integration tests ran against a Testcontainers PostgreSQL."
+          else
+            echo "::notice::No database-source line found in the build log; the two fallback checks above still passed."
+          fi
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-reports
+          path: |
+            backend/target/surefire-reports/
+            backend/target/failsafe-reports/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  frontend:
+    name: Frontend (lint, typecheck, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # npm ci rather than npm install: it installs exactly the lockfile and fails outright
+      # if package.json and the lockfile have drifted apart, which is a quality gate in itself.
+      - name: Install dependencies
+        run: npm ci
+
+      # Run as separate steps rather than "npm run verify" so a red build names which gate
+      # failed without anyone opening the log.
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  migrations:
+    name: Flyway migrations apply to a clean database
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: crm
+          POSTGRES_USER: crm
+          POSTGRES_PASSWORD: crm
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U crm"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          java-version: ${{ env.JAVA_VERSION }}
+          distribution: temurin
+          cache: maven
+
+      # Applies migrations to an empty database. This catches a migration that only works
+      # because a developer's database already contained the object it creates, which the
+      # integration tests cannot catch on their own.
+      - name: Apply migrations
+        working-directory: backend
+        run: >-
+          mvn -B -ntp flyway:migrate
+          -Dflyway.url=jdbc:postgresql://localhost:5432/crm
+          -Dflyway.user=crm
+          -Dflyway.password=crm
+
+      - name: Validate applied migrations against the sources
+        working-directory: backend
+        run: >-
+          mvn -B -ntp flyway:validate
+          -Dflyway.url=jdbc:postgresql://localhost:5432/crm
+          -Dflyway.user=crm
+          -Dflyway.password=crm
+
+      # Epic 0 creates no business tables. This is the same assertion FlywayMigrationIT
+      # makes, repeated against a plain server so it holds independently of the test harness.
+      - name: Gate - the baseline created no business tables
+        run: |
+          TABLES=$(PGPASSWORD=crm psql -h localhost -U crm -d crm -tAc \
+            "SELECT table_name FROM information_schema.tables \
+             WHERE table_schema='public' AND table_type='BASE TABLE' \
+             ORDER BY table_name")
+          echo "tables present: ${TABLES:-<none>}"
+          if [ "$TABLES" != "flyway_schema_history" ]; then
+            echo "::error::Epic 0 must create only flyway_schema_history."
+            exit 1
+          fi

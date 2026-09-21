@@ -1,0 +1,19 @@
+# Test profile.
+# The datasource is supplied at runtime by AbstractPostgresIT, which either starts a
+# Testcontainers PostgreSQL or creates a throwaway database on a server named by
+# crm.it.db.url. Either way the connection details are decided per run, so nothing here
+# is hard-coded: a test that truncates tables should not be one connection string away
+# from doing it to real data.
+spring:
+  jpa:
+    hibernate:
+      ddl-auto: validate
+  flyway:
+    enabled: true
+    clean-disabled: true
+
+logging:
+  level:
+    root: WARN
+    com.rescrm: INFO
+    org.testcontainers: INFO

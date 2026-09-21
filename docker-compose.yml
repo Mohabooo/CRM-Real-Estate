@@ -1,0 +1,29 @@
+# Local development database only.
+#
+# This file describes a developer's machine. It is not a deployment artefact: production
+# hosting is not a decided concern and nothing here should be read as a proposal for one.
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: crm-postgres
+    environment:
+      POSTGRES_DB: ${DB_NAME:-crm}
+      POSTGRES_USER: ${DB_USERNAME:-crm}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-crm}
+      # Deterministic collation, so ORDER BY behaves the same on every developer's machine
+      # and in CI. Locale-dependent sorting is a genuinely confusing source of test drift.
+      POSTGRES_INITDB_ARGS: '--encoding=UTF8 --locale=C'
+    ports:
+      - '${DB_PORT:-5432}:5432'
+    volumes:
+      - crm-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${DB_USERNAME:-crm} -d ${DB_NAME:-crm}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  crm-postgres-data:
+    name: crm-postgres-data

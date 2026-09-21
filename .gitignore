@@ -1,0 +1,81 @@
+# ---------------------------------------------------------------------------
+# Build output
+# ---------------------------------------------------------------------------
+backend/target/
+target/
+*.class
+dependency-reduced-pom.xml
+.mvn/timing.properties
+
+frontend/dist/
+frontend/node_modules/
+frontend/coverage/
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# ---------------------------------------------------------------------------
+# IDE and editor
+# ---------------------------------------------------------------------------
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/
+.settings/
+.classpath
+.project
+.factorypath
+nbproject/
+*.swp
+*~
+
+# ---------------------------------------------------------------------------
+# Operating system
+# ---------------------------------------------------------------------------
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+desktop.ini
+
+# ---------------------------------------------------------------------------
+# Secrets and local configuration — never commit these.
+# .env.example is deliberately tracked: it documents which variables exist,
+# not their values, and its defaults are local-only placeholders.
+# ---------------------------------------------------------------------------
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.jks
+*.keystore
+id_rsa*
+id_ed25519*
+.npmrc
+secrets.*
+credentials.*
+*.secret
+
+# ---------------------------------------------------------------------------
+# Local databases and runtime state
+# ---------------------------------------------------------------------------
+*.db
+*.sqlite
+*.sqlite3
+pgdata/
+*.pid
+*.seed
+*.log
+
+# ---------------------------------------------------------------------------
+# Session artefacts, not part of the project
+# ---------------------------------------------------------------------------
+Claude outputs/

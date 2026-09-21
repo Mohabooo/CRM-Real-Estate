@@ -1,0 +1,58 @@
+{
+  "app": {
+    "title": "Real Estate Sales & Collections",
+    "shortTitle": "RE Platform"
+  },
+  "nav": {
+    "home": "Home",
+    "system": "System status"
+  },
+  "language": {
+    "label": "Language",
+    "english": "English",
+    "arabic": "العربية"
+  },
+  "home": {
+    "heading": "Platform foundation",
+    "epic": "Epic 0 — technical foundation",
+    "intro": "The technical foundation is in place. Business modules are not yet implemented.",
+    "foundationTitle": "What this build contains",
+    "notBuiltTitle": "Not yet implemented",
+    "foundation": {
+      "money": "Money and percentage value objects with exact decimal arithmetic",
+      "schedule": "Schedule date calculation with month-end clamping",
+      "invariant": "Schedule conservation invariant checker",
+      "errors": "Single API error envelope and global exception handling",
+      "correlation": "Request correlation identifiers",
+      "migrations": "Flyway migrations with money and rate domains",
+      "architecture": "Build-breaking architecture rules"
+    },
+    "notBuilt": {
+      "leads": "Leads and customers",
+      "inventory": "Projects, units and inventory",
+      "deals": "Deals and payment plans",
+      "collections": "Payments and collections",
+      "commissions": "Commission engine",
+      "dashboards": "Dashboards and reporting"
+    }
+  },
+  "system": {
+    "heading": "System status",
+    "backendHealth": "Backend health",
+    "platformInfo": "Platform information",
+    "refresh": "Refresh",
+    "status": "Status",
+    "application": "Application",
+    "version": "Version",
+    "epic": "Epic",
+    "checking": "Checking…",
+    "unreachable": "The backend is not reachable. Start it with: mvn spring-boot:run"
+  },
+  "error": {
+    "title": "Something went wrong",
+    "unexpected": "An unexpected error occurred.",
+    "retry": "Try again",
+    "reload": "Reload the page",
+    "correlationId": "Reference"
+  }
+}

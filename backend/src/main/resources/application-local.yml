@@ -1,0 +1,22 @@
+# Local development profile.
+# Assumes the PostgreSQL container started by docker-compose at the repository root.
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/crm}
+    username: ${DB_USERNAME:crm}
+    password: ${DB_PASSWORD:crm}
+
+  jpa:
+    properties:
+      hibernate:
+        format_sql: true
+
+management:
+  endpoint:
+    health:
+      show-details: always
+
+logging:
+  level:
+    com.rescrm: DEBUG
+    org.springframework.jdbc.core: INFO
