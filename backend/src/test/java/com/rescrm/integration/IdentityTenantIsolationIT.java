@@ -69,7 +69,12 @@ class IdentityTenantIsolationIT extends AbstractPostgresIT {
                 .invite("invitee-b-" + unique + "@example.com", Role.SALES_AGENT, branchOfB)
                 .invitation().id();
 
+        // A gets one of its own too. Without it A's list is empty, and "contains only A"
+        // would pass against an empty list — the assertion would hold even if scoping were
+        // removed entirely, which is the failure mode this guards against.
         asOwnerOf(tenantA);
+        invitationService.invite("invitee-a-" + unique + "@example.com", Role.SALES_AGENT,
+                tenantA.initialBranch().id());
     }
 
     @AfterEach

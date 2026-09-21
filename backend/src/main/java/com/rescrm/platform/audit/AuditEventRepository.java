@@ -1,7 +1,7 @@
 package com.rescrm.platform.audit;
 
-import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
@@ -10,11 +10,15 @@ import java.util.UUID;
 /**
  * Read and append only.
  *
- * <p>No delete or update method is exposed, and the inherited ones are overridden to refuse.
- * The database triggers already reject those operations; this makes the same rule visible at
- * the call site instead of surfacing as a runtime error from the driver.
+ * <p>Extends the bare {@link Repository} marker rather than {@code JpaRepository}, so
+ * {@code delete}, {@code deleteById} and {@code deleteAll} do not exist on this type at all.
+ * The database triggers refuse those operations anyway, but an interface that offers them is
+ * an interface someone will call: this makes the rule a compile error rather than a runtime
+ * one, and {@code AuditTrailIT} asserts the absence so it cannot be reintroduced.
  */
-public interface AuditEventRepository extends JpaRepository<AuditEvent, UUID> {
+public interface AuditEventRepository extends Repository<AuditEvent, UUID> {
+
+    AuditEvent save(AuditEvent event);
 
     @Query("SELECT e FROM AuditEvent e WHERE e.tenantId = :tenantId "
             + "AND e.entityType = :entityType AND e.entityId = :entityId "

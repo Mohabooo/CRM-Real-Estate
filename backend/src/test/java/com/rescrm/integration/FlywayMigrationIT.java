@@ -9,7 +9,6 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * Verifies that migrations apply cleanly and that Epic 0 created the foundation — and only
@@ -105,12 +104,20 @@ class FlywayMigrationIT extends AbstractPostgresIT {
     @Test
     @DisplayName("the tenant session variable behaves as the RLS design assumes")
     void tenant_session_variable_semantics() {
-        // Documented in V1: reading the variable before it is set must raise rather than
-        // return NULL, so a query with no tenant established fails instead of matching
-        // every row once RLS policies arrive in Epic 1.
-        assertThatThrownBy(() ->
-                jdbc.queryForObject("SELECT current_setting('app.current_tenant_id')", String.class))
-                .hasMessageContaining("app.current_tenant_id");
+        // V1 recorded the convention; Epic 1's TenantAwareDataSource now enforces it by
+        // stamping every connection it hands out. So the variable is never unset any more,
+        // and this no longer raises. What RLS actually depends on is the empty case
+        // resolving to NULL, which the policies treat as matching no rows rather than all.
+        String whenNoTenantEstablished = jdbc.queryForObject(
+                "SELECT current_setting('app.current_tenant_id', true)", String.class);
+        assertThat(whenNoTenantEstablished).isNullOrEmpty();
+
+        jdbc.execute("SET app.current_tenant_id = ''");
+        assertThat(jdbc.queryForObject(
+                "SELECT nullif(current_setting('app.current_tenant_id', true), '')::uuid IS NULL",
+                Boolean.class))
+                .as("an empty binding must match nothing, not everything")
+                .isTrue();
 
         jdbc.execute("SET app.current_tenant_id = '11111111-1111-1111-1111-111111111111'");
         String value = jdbc.queryForObject(

@@ -110,7 +110,15 @@ class IdentityApiScopeIT extends AbstractPostgresIT {
     void cross_tenant_branch_is_not_found() throws Exception {
         mockMvc.perform(get("/api/v1/branches/" + tenantB.initialBranch().id()))
                 .andExpect(status().isNotFound())
-                .andExpect(jsonPath("$.code").value("NOT_FOUND"));
+                .andExpect(jsonPath("$.error.code").value("NOT_FOUND"));
+    }
+
+    @Test
+    @DisplayName("an authenticated caller asking for an unknown path gets 404 in the envelope")
+    void unknown_path_is_not_found_once_authenticated() throws Exception {
+        mockMvc.perform(get("/api/v1/does-not-exist"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.error.code").value("NOT_FOUND"));
     }
 
     @Test

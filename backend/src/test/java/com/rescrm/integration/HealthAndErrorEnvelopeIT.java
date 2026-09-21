@@ -78,9 +78,14 @@ class HealthAndErrorEnvelopeIT extends AbstractPostgresIT {
     }
 
     @Test
-    @DisplayName("an unknown path returns the documented error envelope, not a whitelabel page")
+    @DisplayName("an unknown path is refused in the documented envelope, not a whitelabel page")
     void unknown_path_uses_the_error_envelope() throws Exception {
+        // From Epic 1 authentication runs before routing, so an unknown path under /api/v1
+        // answers 401 rather than 404. That order is deliberate: answering 404 first would
+        // tell an unauthenticated caller which paths exist. The envelope is the point of
+        // this test, and it still holds.
         mockMvc.perform(get("/api/v1/does-not-exist"))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.error.code").value("UNAUTHORIZED"));
     }
 }
