@@ -17,3 +17,14 @@ logging:
     root: WARN
     com.rescrm: INFO
     org.testcontainers: INFO
+
+crm:
+  security:
+    # A fixed, published, test-only AES-256 key. It is safe to commit precisely because it is
+    # worthless: it protects nothing but throwaway rows in a database that is destroyed when
+    # the run ends. Encrypted-field tests need a deterministic key, and generating one per run
+    # would mean a ciphertext written in one test could not be read in the next.
+    #
+    # Nothing outside the test profile has a default. An unconfigured environment fails loudly
+    # on first use rather than falling back to this value.
+    field-encryption-key: "dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1leGFjdGx5ISE="
