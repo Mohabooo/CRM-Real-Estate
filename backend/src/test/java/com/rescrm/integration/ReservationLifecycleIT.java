@@ -240,71 +240,92 @@ class ReservationLifecycleIT extends AbstractPostgresIT {
     @DisplayName("E4-S3 extension")
     class Extension {
 
+        /**
+         * Everything here happens inside a branch, deliberately.
+         *
+         * <p>A hold placed by the owner carries no branch, because the owner sits in none —
+         * and a branch manager then cannot see it, which is the branch scoping working
+         * rather than failing. So the hold is placed by an agent in a branch and extended by
+         * that branch's manager, which is also how it happens in the building.
+         */
+        private UUID branchHold() {
+            asAgentInBranch();
+            UUID id = reservationService.place(unitId, leadId, null, null, null, false).id();
+            asBranchManager();
+            reservationService.confirm(id);
+            return id;
+        }
+
+        private void asAgentInBranch() {
+            TestIdentity.signOut();
+            TestIdentity.signIn(tenant.owner().id(), tenant.tenant().id(), Role.SALES_AGENT,
+                    tenant.initialBranch().id());
+        }
+
+        private void asBranchManager() {
+            TestIdentity.signOut();
+            TestIdentity.signIn(tenant.owner().id(), tenant.tenant().id(), Role.BRANCH_MANAGER,
+                    tenant.initialBranch().id());
+        }
+
+        private void asOwner() {
+            TestIdentity.signOut();
+            TestIdentity.signIn(tenant.owner().id(), tenant.tenant().id(), Role.OWNER, null);
+        }
+
         @Test
         @DisplayName("a branch manager may extend within the tenant's limit")
         void within_the_limit() {
-            Reservation held = place();
-            reservationService.confirm(held.id());
+            UUID holdId = branchHold();
+            OffsetDateTime before = reservationService.get(holdId).expiresAt();
 
-            TestIdentity.signOut();
-            TestIdentity.signIn(tenant.owner().id(), tenant.tenant().id(),
-                    Role.BRANCH_MANAGER, null);
-
-            Reservation extended = reservationService.extend(held.id(),
-                    held.expiresAt().plusDays(5), "customer is arranging finance");
+            Reservation extended = reservationService.extend(holdId, before.plusDays(5),
+                    "customer is arranging finance");
 
             assertThat(extended.extensionCount()).isEqualTo(1);
-            assertThat(extended.expiresAt()).isEqualTo(held.expiresAt().plusDays(5));
+            assertThat(extended.expiresAt()).isEqualTo(before.plusDays(5));
         }
 
         @Test
         @DisplayName("beyond the limit a branch manager is refused; an owner is not")
         void beyond_the_limit_needs_an_owner() {
-            Reservation held = place();
-            reservationService.confirm(held.id());
-            OffsetDateTime wayOut = held.originalExpiresAt().plusDays(30);
+            UUID holdId = branchHold();
+            OffsetDateTime wayOut = reservationService.get(holdId).originalExpiresAt()
+                    .plusDays(30);
 
-            TestIdentity.signOut();
-            TestIdentity.signIn(tenant.owner().id(), tenant.tenant().id(),
-                    Role.BRANCH_MANAGER, null);
-            assertCode(() -> reservationService.extend(held.id(), wayOut, "big customer"),
+            assertCode(() -> reservationService.extend(holdId, wayOut, "big customer"),
                     ErrorCode.FORBIDDEN);
 
-            TestIdentity.signOut();
-            TestIdentity.signIn(tenant.owner().id(), tenant.tenant().id(), Role.OWNER, null);
-            assertThat(reservationService.extend(held.id(), wayOut, "big customer")
-                    .expiresAt()).isEqualTo(wayOut);
+            asOwner();
+            assertThat(reservationService.extend(holdId, wayOut, "big customer").expiresAt())
+                    .isEqualTo(wayOut);
         }
 
         @Test
         @DisplayName("the limit is measured from where the hold started, not from today")
         void the_limit_is_cumulative() {
-            Reservation held = place();
-            reservationService.confirm(held.id());
-            OffsetDateTime original = held.originalExpiresAt();
+            UUID holdId = branchHold();
+            OffsetDateTime original = reservationService.get(holdId).originalExpiresAt();
 
-            TestIdentity.signOut();
-            TestIdentity.signIn(tenant.owner().id(), tenant.tenant().id(),
-                    Role.BRANCH_MANAGER, null);
+            reservationService.extend(holdId, original.plusDays(4), "first");
 
-            reservationService.extend(held.id(), original.plusDays(4), "first");
-
-            // Four days used, limit is seven. A fifth day more is within it; a further six
-            // would take the total to ten and is not — measured from the original expiry,
-            // so a manager cannot walk the hold forward a few days at a time forever.
-            reservationService.extend(held.id(), original.plusDays(6), "second");
-            assertCode(() -> reservationService.extend(held.id(), original.plusDays(12),
-                    "third"), ErrorCode.FORBIDDEN);
+            // Four days used against a seven-day limit. Two more is within it; a further
+            // six would take the total to ten and is not — measured from the original
+            // expiry, so a manager cannot walk the hold forward a few days at a time
+            // forever.
+            reservationService.extend(holdId, original.plusDays(6), "second");
+            assertCode(() -> reservationService.extend(holdId, original.plusDays(12), "third"),
+                    ErrorCode.FORBIDDEN);
         }
 
         @Test
         @DisplayName("an extension cannot move the expiry backwards")
         void extensions_go_forward_only() {
-            Reservation held = place();
-            reservationService.confirm(held.id());
+            UUID holdId = branchHold();
+            OffsetDateTime before = reservationService.get(holdId).expiresAt();
 
-            assertCode(() -> reservationService.extend(held.id(),
-                    held.expiresAt().minusDays(1), "shorten"), ErrorCode.VALIDATION_FAILED);
+            assertCode(() -> reservationService.extend(holdId, before.minusDays(1), "shorten"),
+                    ErrorCode.VALIDATION_FAILED);
         }
     }
 

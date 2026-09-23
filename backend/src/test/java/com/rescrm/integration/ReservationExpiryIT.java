@@ -99,10 +99,21 @@ class ReservationExpiryIT extends AbstractPostgresIT {
         TestIdentity.signIn(f.tenant().owner().id(), f.tenant().tenant().id(), Role.OWNER, null);
     }
 
-    /** Backdates the expiry so the sweep has something genuinely due. */
+    /**
+     * Ages the hold so the sweep has something genuinely due.
+     *
+     * <p>The whole hold moves back, not just its expiry. Backdating the expiry alone would
+     * leave a row that expired before it was placed, which the schema refuses
+     * ({@code chk_reservations_expiry_after_start}) and rightly so — a test that fabricates
+     * a row the application could never produce proves nothing about the application. What
+     * this writes is an ordinary hold placed eight days ago whose week has run out.
+     */
     private void makeOverdue(UUID reservationId) {
-        jdbc.update("UPDATE reservations SET expires_at = now() - interval '1 hour', "
-                + "original_expires_at = now() - interval '1 hour' WHERE id = ?", reservationId);
+        jdbc.update("UPDATE reservations SET "
+                + "reserved_at = now() - interval '8 days', "
+                + "expires_at = now() - interval '1 hour', "
+                + "original_expires_at = now() - interval '1 hour' "
+                + "WHERE id = ?", reservationId);
     }
 
     private Reservation confirmedHold(Fixture f) {

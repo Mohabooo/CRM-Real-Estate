@@ -105,8 +105,7 @@ public class ReservationService {
         Reservation reservation;
         try {
             reservation = Reservation.place(tenantId, unitId, leadId, customerId,
-                    caller.userId(), unit.projectId() == null ? null : caller.branchId(),
-                    now, expiry);
+                    caller.userId(), caller.branchId(), now, expiry);
         } catch (IllegalArgumentException e) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED, e.getMessage());
         }
@@ -358,18 +357,28 @@ public class ReservationService {
      * the gap between the two is exactly where the second hold gets in.
      */
     private Reservation saveExclusive(UUID tenantId, Reservation reservation, UUID unitId) {
+        // Read BEFORE the insert, and only so the refusal can name the holder as doc 23
+        // requires. It decides nothing — C2 decides. Between this read and the insert
+        // another hold can appear, and then the index refuses ours and the caller is told
+        // the unit is held without a name: correct, and rarer than the case this serves.
+        reservations.findActiveForUnit(tenantId, unitId)
+                .ifPresent(held -> {
+                    throw new ApiException(ErrorCode.CONFLICT, "That unit is already on hold",
+                            Map.of("unitId", unitId.toString(),
+                                    "heldByReservationId", held.id().toString(),
+                                    "heldUntil", held.expiresAt().toString()));
+                });
+
         try {
             return reservations.saveAndFlush(reservation);
         } catch (DataIntegrityViolationException e) {
-            Optional<Reservation> holder = reservations.findActiveForUnit(tenantId, unitId);
-            Map<String, Object> details = new LinkedHashMap<>();
-            details.put("unitId", unitId.toString());
-            holder.ifPresent(held -> {
-                details.put("heldByReservationId", held.id().toString());
-                details.put("heldUntil", held.expiresAt().toString());
-            });
+            // Nothing may be queried here. The failed insert has aborted the transaction,
+            // and PostgreSQL rejects every further command with "current transaction is
+            // aborted" until it ends — so looking up the winner to name it, which is the
+            // obvious thing to reach for, replaces a useful 409 with an unhelpful 500.
             throw new ApiException(ErrorCode.CONFLICT,
-                    "That unit is already on hold", details);
+                    "That unit was taken while this hold was being placed",
+                    Map.of("unitId", unitId.toString()));
         }
     }
 
