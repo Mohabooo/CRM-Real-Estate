@@ -26,6 +26,18 @@ public class TenantAwareDataSource extends DelegatingDataSource {
 
     static final String SET_TENANT_SQL = "SELECT set_config('app.current_tenant_id', ?, false)";
 
+    /**
+     * Cleared on every connection, always.
+     *
+     * <p>{@code app.platform_task} is the one key that widens a policy — it lets the
+     * reservation expiry sweep read the tenant registry so it knows which tenants to run
+     * for, and it widens nothing else (V5). Resetting it here means a request can never
+     * inherit it from a pooled connection: the only code that can be running under it is
+     * code that just set it on a connection it is holding.
+     */
+    static final String CLEAR_PLATFORM_TASK_SQL =
+            "SELECT set_config('app.platform_task', '', false)";
+
     public TenantAwareDataSource(DataSource target) {
         super(target);
     }
@@ -45,6 +57,10 @@ public class TenantAwareDataSource extends DelegatingDataSource {
         try (PreparedStatement statement = connection.prepareStatement(SET_TENANT_SQL)) {
             statement.setString(1, tenantId.map(UUID::toString).orElse(""));
             statement.execute();
+            try (PreparedStatement clearPlatform =
+                         connection.prepareStatement(CLEAR_PLATFORM_TASK_SQL)) {
+                clearPlatform.execute();
+            }
         } catch (SQLException e) {
             // Never hand out a connection whose tenant binding is unknown: it would read
             // under whatever the previous borrower left behind.
