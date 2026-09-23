@@ -154,14 +154,36 @@ class UnitConcurrencyIT extends AbstractPostgresIT {
     }
 
     @Test
-    @DisplayName("a reserved unit can still be sold, by exactly one caller")
-    void exactly_one_sale_wins_against_a_reserved_unit() throws Exception {
+    @DisplayName("a reserved unit is not in open inventory, so an ordinary sale cannot take it")
+    void a_reserved_unit_is_not_for_sale() throws Exception {
+        // This assertion is the opposite of what it was, and the change is deliberate.
+        // claimForSale used to fall back to reserved -> sold on the grounds that doc 18
+        // section 2 permits that transition. It does — but only for the hold on the unit
+        // converting into a deal, not for a second buyer. Falling back unconditionally let
+        // a sale take a unit actively reserved for somebody else, which a reservation
+        // concurrency test caught by having a confirmation and a sale both win.
         UUID unitId = newUnit("RACE-3");
         assertThat(unitService.claimForReservation(unitId).won()).isTrue();
 
-        // Doc 18 section 2 allows reserved -> sold, so this is the reservation converting.
-        // Twenty callers try; the unit is sold once.
         List<UnitClaim> claims = race(() -> unitService.claimForSale(unitId));
+
+        assertThat(claims).filteredOn(UnitClaim::won)
+                .as("a held unit must be released before it can be sold to somebody else")
+                .isEmpty();
+
+        signIn();
+        assertThat(unitService.get(unitId).status()).isEqualTo(UnitStatus.RESERVED);
+    }
+
+    @Test
+    @DisplayName("but the hold converting does sell it, by exactly one caller")
+    void exactly_one_conversion_wins_against_a_reserved_unit() throws Exception {
+        UUID unitId = newUnit("RACE-3B");
+        assertThat(unitService.claimForReservation(unitId).won()).isTrue();
+
+        // The conversion path: doc 18's reserved -> sold, which never passes back through
+        // available because that would open a window for somebody else to take the unit.
+        List<UnitClaim> claims = race(() -> unitService.claimForSaleOnConversion(unitId));
 
         assertThat(claims).filteredOn(UnitClaim::won).hasSize(1);
 

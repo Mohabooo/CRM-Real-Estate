@@ -217,17 +217,39 @@ public class UnitService {
     }
 
     /**
-     * E3-S5. A unit becomes sold from either available or reserved — doc 18 section 2 allows
-     * both, because a reservation converting into a deal never passes back through available,
-     * and making it do so would open a window for somebody else to take the unit.
+     * E3-S5. Sells a unit that is in open inventory.
+     *
+     * <p>Available only, deliberately. This method used to fall back to
+     * {@code reserved -> sold} on the grounds that doc 18 section 2 permits that transition —
+     * which it does, but only for the reservation that is holding the unit converting into a
+     * deal. Falling back unconditionally meant a second buyer's sale could take a unit
+     * actively reserved for a first, which is precisely the double-sell doc 16 says the
+     * tenant's reputation depends on preventing. A concurrency test caught it: a
+     * confirmation and a sale both won.
+     *
+     * <p>To sell a unit somebody is holding, release the hold first. That is a decision with
+     * a reason attached and an audit entry behind it, which is what taking a unit off a
+     * colleague's customer should be.
      */
     @Transactional(propagation = Propagation.REQUIRED)
     public UnitClaim claimForSale(UUID unitId) {
-        UnitClaim fromAvailable = claim(unitId, UnitStatus.AVAILABLE, UnitStatus.SOLD,
-                AuditAction.UNIT_SOLD);
-        if (fromAvailable.won()) {
-            return fromAvailable;
-        }
+        return claim(unitId, UnitStatus.AVAILABLE, UnitStatus.SOLD, AuditAction.UNIT_SOLD);
+    }
+
+    /**
+     * {@code reserved -> sold}: the hold on this unit converting into a deal.
+     *
+     * <p>The other half of doc 18 section 2's "reserved / available -> sold". A conversion
+     * never passes back through available, because that would open a window for somebody
+     * else to take the unit between the release and the sale.
+     *
+     * <p>Named for the event rather than offered as a flag, and not exposed over HTTP: the
+     * caller has to be the module that knows a hold is converting. Epic 5's deal activation
+     * reaches it through the reservation named by {@code source_reservation_id}, which is
+     * what makes "this buyer's own hold" true rather than assumed.
+     */
+    @Transactional(propagation = Propagation.REQUIRED)
+    public UnitClaim claimForSaleOnConversion(UUID unitId) {
         return claim(unitId, UnitStatus.RESERVED, UnitStatus.SOLD, AuditAction.UNIT_SOLD);
     }
 
