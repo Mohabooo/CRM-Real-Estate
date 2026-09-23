@@ -32,7 +32,7 @@ class FlywayMigrationIT extends AbstractPostgresIT {
                 "SELECT version FROM flyway_schema_history WHERE success = true ORDER BY installed_rank",
                 String.class);
 
-        assertThat(versions).containsExactly("1", "2", "3");
+        assertThat(versions).containsExactly("1", "2", "3", "4");
     }
 
     @Test
@@ -77,20 +77,26 @@ class FlywayMigrationIT extends AbstractPostgresIT {
                         + "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'",
                 String.class);
 
-        // Epic 1 owns the first five; Epic 2 adds leads, customers and activities.
+        // Epic 1 owns the first five; Epic 2 adds leads, customers and activities; Epic 3
+        // adds developers, projects, phases and units.
         //
-        // 'tasks' is deliberately absent. Doc 23 lists no /tasks endpoint and no Epic 2 story
+        // 'tasks' is deliberately absent. Doc 23 lists no /tasks endpoint and no story so far
         // needs one, so it belongs to whichever epic first has a use for it rather than being
-        // created now on the strength of the word appearing in a diagram.
+        // created on the strength of the word appearing in a diagram.
+        //
+        // 'reservations' and 'deals' are absent for a sharper reason. Doc 22's C1 and C2 are
+        // partial unique indexes on those tables, and it was tempting to create them in Epic 3
+        // so that E3-S5's guarantee could be expressed the way the document expresses it.
+        // Epic 3 guards the unit instead; the tables arrive with their epics.
         assertThat(tables).containsExactlyInAnyOrder(
                 "flyway_schema_history",
                 "tenants", "branches", "users", "invitations", "audit_events",
-                "leads", "customers", "activities");
+                "leads", "customers", "activities",
+                "developers", "projects", "phases", "units");
 
         assertThat(tables)
                 .as("no later epic's table may appear before its epic")
-                .doesNotContain("tasks",
-                        "developers", "projects", "phases", "units", "reservations", "deals",
+                .doesNotContain("tasks", "reservations", "deals",
                         "payment_plan_templates", "customer_payment_plans", "installments",
                         "payments", "payment_allocations", "commissions", "commission_rules");
     }
@@ -102,7 +108,8 @@ class FlywayMigrationIT extends AbstractPostgresIT {
                 "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
                         + "WHERE n.nspname = 'public' AND c.relkind = 'r' "
                         + "AND relname IN ('tenants','branches','users','invitations',"
-                        + "'audit_events','leads','customers','activities') "
+                        + "'audit_events','leads','customers','activities',"
+                        + "'developers','projects','phases','units') "
                         + "AND (c.relrowsecurity = false OR c.relforcerowsecurity = false)",
                 String.class);
 

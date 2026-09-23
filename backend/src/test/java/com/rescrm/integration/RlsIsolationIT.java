@@ -62,8 +62,8 @@ class RlsIsolationIT extends AbstractPostgresIT {
                         END $$;""".formatted(PROBE_ROLE, PROBE_ROLE));
                 setup.execute("GRANT USAGE ON SCHEMA public TO " + PROBE_ROLE);
                 setup.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, branches, users, "
-                        + "invitations, audit_events, leads, customers, activities TO "
-                        + PROBE_ROLE);
+                        + "invitations, audit_events, leads, customers, activities, "
+                        + "developers, projects, phases, units TO " + PROBE_ROLE);
                 setup.execute("SET ROLE " + PROBE_ROLE);
                 setup.execute("SET app.current_tenant_id = '" + tenantId + "'");
             }
@@ -269,6 +269,83 @@ class RlsIsolationIT extends AbstractPostgresIT {
         jdbc.update("INSERT INTO activities (tenant_id, subject_type, subject_id, type, body, "
                         + "occurred_at) VALUES (?, 'Lead', ?, 'call', 'spoke', now())",
                 tenantId, leadId);
+    }
+
+    @Test
+    @DisplayName("Epic 3's inventory tables are isolated by the database too")
+    void inventory_tables_are_isolated() {
+        var tenants = provisionTwo();
+
+        UUID projectOfA = insertProject(tenants.a(), "Project A");
+        UUID projectOfB = insertProject(tenants.b(), "Project B");
+        UUID unitOfA = insertUnit(tenants.a(), projectOfA, "A-1");
+        UUID unitOfB = insertUnit(tenants.b(), projectOfB, "B-1");
+        UUID developerOfB = insertDeveloper(tenants.b(), "Developer B");
+
+        asUnprivilegedRole(tenants.a(), connection -> {
+            assertThat(count(connection,
+                    "SELECT count(*) FROM projects WHERE id = '" + projectOfB + "'")).isZero();
+            assertThat(count(connection,
+                    "SELECT count(*) FROM units WHERE id = '" + unitOfB + "'")).isZero();
+            assertThat(count(connection,
+                    "SELECT count(*) FROM developers WHERE id = '" + developerOfB + "'"))
+                    .isZero();
+
+            // A's own rows remain visible, so the policy filters rather than denying.
+            assertThat(count(connection,
+                    "SELECT count(*) FROM units WHERE id = '" + unitOfA + "'")).isEqualTo(1);
+            return null;
+        });
+
+        // The unit that matters most: a cross-tenant UPDATE on a unit's status is how one
+        // tenant would take another's inventory out of contention.
+        int updated = asUnprivilegedRole(tenants.a(), connection -> {
+            try (Statement statement = connection.createStatement()) {
+                return statement.executeUpdate(
+                        "UPDATE units SET status = 'sold' WHERE id = '" + unitOfB + "'");
+            }
+        });
+        assertThat(updated).isZero();
+        assertThat(jdbc.queryForObject("SELECT status FROM units WHERE id = ?", String.class,
+                unitOfB)).isEqualTo("available");
+    }
+
+    @Test
+    @DisplayName("a project cannot be smuggled into another tenant")
+    void cross_tenant_project_insert_is_refused() {
+        var tenants = provisionTwo();
+        String failure = asUnprivilegedRole(tenants.a(), connection -> {
+            try (Statement statement = connection.createStatement()) {
+                statement.executeUpdate(
+                        "INSERT INTO projects (tenant_id, commercial_model, name_en, status) "
+                                + "VALUES ('" + tenants.b() + "', 'own_inventory', 'smuggled', "
+                                + "'draft')");
+                return null;
+            } catch (SQLException e) {
+                return e.getMessage();
+            }
+        });
+        assertThat(failure).contains("row-level security");
+    }
+
+    private UUID insertProject(UUID tenantId, String name) {
+        return jdbc.queryForObject(
+                "INSERT INTO projects (tenant_id, commercial_model, name_en, status) "
+                        + "VALUES (?, 'own_inventory', ?, 'active') RETURNING id",
+                UUID.class, tenantId, name);
+    }
+
+    private UUID insertUnit(UUID tenantId, UUID projectId, String code) {
+        return jdbc.queryForObject(
+                "INSERT INTO units (tenant_id, project_id, code, list_price, status) "
+                        + "VALUES (?, ?, ?, 2500000, 'available') RETURNING id",
+                UUID.class, tenantId, projectId, code);
+    }
+
+    private UUID insertDeveloper(UUID tenantId, String name) {
+        return jdbc.queryForObject(
+                "INSERT INTO developers (tenant_id, name) VALUES (?, ?) RETURNING id",
+                UUID.class, tenantId, name);
     }
 
     @Test
