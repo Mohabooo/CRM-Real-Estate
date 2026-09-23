@@ -14,13 +14,18 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
+import com.rescrm.commercialmodel.CommercialModel;
+
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.stream.StreamSupport;
 
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noFields;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noMethods;
+import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * Architecture rules, enforced at build time.
@@ -38,6 +43,10 @@ class ArchitectureTest {
 
     private static final String BASE_PACKAGE = "com.rescrm";
     private static final String COMMERCIAL_MODEL_PACKAGE = "com.rescrm.commercialmodel";
+    private static final String POLICY_PACKAGE = COMMERCIAL_MODEL_PACKAGE + ".policy";
+
+    /** Doc 21 section 2a, constraint 1 and decision A10. The count is the control. */
+    private static final int MAX_POLICY_POINTS = 8;
 
     private static JavaClasses productionClasses;
 
@@ -87,6 +96,48 @@ class ArchitectureTest {
                 .allowEmptyShould(true);
 
         rule.check(productionClasses);
+    }
+
+    @Test
+    @DisplayName("There are at most eight commercial-model policy points")
+    void policy_points_are_capped_at_eight() {
+        List<String> policies = StreamSupport.stream(productionClasses.spliterator(), false)
+                .filter(javaClass -> javaClass.getPackageName().equals(POLICY_PACKAGE))
+                .filter(JavaClass::isInterface)
+                .filter(javaClass -> javaClass.getSimpleName().endsWith("Policy"))
+                .map(JavaClass::getSimpleName)
+                .sorted()
+                .toList();
+
+        // Doc 21 section 2a: "Adding a ninth is a design decision requiring justification,
+        // not a routine change." The count is what stops model-branching from spreading:
+        // eight named decision points are auditable, twenty are a switch statement wearing
+        // interfaces. Raising this number should be as uncomfortable as it looks.
+        assertThat(policies)
+                .as("the commercial-model policy points are %s", policies)
+                .hasSizeLessThanOrEqualTo(MAX_POLICY_POINTS);
+    }
+
+    @Test
+    @DisplayName("Policy interfaces never expose the commercial model itself")
+    void policies_do_not_leak_the_enum() {
+        // A policy whose method returned CommercialModel would hand every caller the enum
+        // the containment rule exists to withhold, and the architecture would be decorative.
+        ArchRule rule = noMethods()
+                .that().arePublic()
+                .and().areDeclaredInClassesThat().resideInAPackage(POLICY_PACKAGE)
+                .should().haveRawReturnType(CommercialModel.class)
+                .because("a caller receives answers, never the model; otherwise the policy "
+                        + "layer is a getter with extra steps (doc 25 section 6)")
+                .allowEmptyShould(true);
+
+        rule.check(productionClasses);
+
+        methods().that().arePublic()
+                .and().areDeclaredInClassesThat().resideInAPackage(POLICY_PACKAGE)
+                .should(notAcceptTheCommercialModelEnum())
+                .allowEmptyShould(true)
+                .check(productionClasses);
     }
 
     // =================================================================================
@@ -299,6 +350,22 @@ class ArchitectureTest {
     // =================================================================================
     // Custom conditions
     // =================================================================================
+
+    private static ArchCondition<JavaMethod> notAcceptTheCommercialModelEnum() {
+        return new ArchCondition<>("not accept a CommercialModel parameter") {
+            @Override
+            public void check(JavaMethod method, ConditionEvents events) {
+                for (JavaClass parameter : method.getRawParameterTypes()) {
+                    if (CommercialModel.class.getName().equals(parameter.getName())) {
+                        events.add(SimpleConditionEvent.violated(method,
+                                method.getFullName() + " accepts a CommercialModel; policies "
+                                        + "take the opaque model code so no caller has to hold "
+                                        + "the enum"));
+                    }
+                }
+            }
+        };
+    }
 
     private static ArchCondition<JavaMethod> notAcceptFloatingPointParameters() {
         return new ArchCondition<>("not accept float or double parameters") {
