@@ -74,6 +74,21 @@ public class IdentityDirectory {
      * <p>Returned as the opaque code it is stored as. The caller resolves it through a
      * policy; identity neither knows nor cares what it means.
      */
+    /**
+     * The tenant's settings blob, for a module that needs its own section of it.
+     *
+     * <p>Returned as the opaque JSON it is stored as. Identity owns the row; what any
+     * particular section means belongs to the module that put it there.
+     */
+    @Transactional(readOnly = true)
+    public String tenantSettings(UUID tenantId) {
+        return tenants.findById(tenantId)
+                .map(tenant -> tenant.settings())
+                .orElseThrow(() -> new IllegalStateException(
+                        "No tenant " + tenantId + "; a request cannot be authenticated "
+                                + "against a tenant that does not exist"));
+    }
+
     @Transactional(readOnly = true)
     public String tenantDefaultCommercialModel(UUID tenantId) {
         return tenants.findById(tenantId)

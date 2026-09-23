@@ -57,5 +57,16 @@ public enum AuditAction {
     UNIT_RESERVED,
     UNIT_SOLD,
     UNIT_RETURNED_TO_INVENTORY,
-    UNITS_IMPORTED
+    UNITS_IMPORTED,
+
+    // Epic 4 — reservations. Doc 18 section 3 marks every transition as audited, expiry
+    // included: an expiry is the one transition nobody requested, so the trail is the only
+    // record that it happened at all.
+    RESERVATION_PLACED,
+    RESERVATION_CONFIRMED,
+    RESERVATION_RELEASED,
+    RESERVATION_CANCELLED,
+    RESERVATION_EXPIRED,
+    RESERVATION_EXTENDED,
+    RESERVATION_DEPOSIT_RECORDED
 }

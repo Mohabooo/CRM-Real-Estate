@@ -15,6 +15,7 @@ import com.rescrm.platform.money.Money;
 import com.rescrm.platform.security.AuthorizationService;
 import com.rescrm.platform.security.Role;
 import com.rescrm.platform.security.SecurityContext;
+import com.rescrm.platform.security.SystemActor;
 import com.rescrm.platform.tenancy.TenantContext;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
@@ -233,13 +234,32 @@ public class UnitService {
     /** Release, expiry or cancellation — the unit re-enters inventory. */
     @Transactional
     public UnitClaim returnToInventory(UUID unitId, UnitStatus from, String reason) {
+        requireReturnable(from);
+        return claim(unitId, from, UnitStatus.AVAILABLE,
+                AuditAction.UNIT_RETURNED_TO_INVENTORY, reason);
+    }
+
+    /**
+     * The same release, performed by the system rather than by a person (E4-S2).
+     *
+     * <p>A separate method rather than a flag on the one above, because the difference is
+     * not a parameter: this path asks for no authorization and records no actor, and both
+     * of those should be visible to whoever is reading it. It expects {@link SystemActor}
+     * to have established the tenant — without one, the row-level security policies match
+     * nothing and the sweep silently does nothing at all.
+     */
+    @Transactional
+    public UnitClaim releaseOnExpiry(UUID unitId, String reason) {
+        return claim(unitId, UnitStatus.RESERVED, UnitStatus.AVAILABLE,
+                AuditAction.UNIT_RETURNED_TO_INVENTORY, reason, null);
+    }
+
+    private static void requireReturnable(UnitStatus from) {
         if (from != UnitStatus.RESERVED && from != UnitStatus.SOLD) {
             throw new ApiException(ErrorCode.VALIDATION_FAILED,
                     "Only a reserved or sold unit returns to inventory; a blocked one is "
                             + "unblocked instead");
         }
-        return claim(unitId, from, UnitStatus.AVAILABLE,
-                AuditAction.UNIT_RETURNED_TO_INVENTORY, reason);
     }
 
     private UnitClaim claim(UUID unitId, UnitStatus expected, UnitStatus target,
@@ -249,8 +269,20 @@ public class UnitService {
 
     private UnitClaim claim(UUID unitId, UnitStatus expected, UnitStatus target,
                             AuditAction action, String reason) {
+        return claim(unitId, expected, target, action, reason,
+                SecurityContext.require().userId());
+    }
+
+    /**
+     * The transition itself, with the actor passed in rather than read off the thread.
+     *
+     * <p>Explicit because not every transition has a requester: doc 18 makes SYS the actor
+     * when a reservation expires and the unit it held comes back. Those pass null, which is
+     * precisely what V2 documents a null {@code actor_user_id} to mean.
+     */
+    private UnitClaim claim(UUID unitId, UnitStatus expected, UnitStatus target,
+                            AuditAction action, String reason, UUID actor) {
         UUID tenantId = TenantContext.require();
-        UUID actor = SecurityContext.require().userId();
 
         // Confirms the unit is this tenant's before anything else, so a cross-tenant id
         // answers 404 rather than a silent "you lost the race".
