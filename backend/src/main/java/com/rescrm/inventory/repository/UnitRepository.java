@@ -19,6 +19,16 @@ public interface UnitRepository extends Repository<Unit, UUID> {
 
     Unit save(Unit unit);
 
+    /**
+     * Writes the row now rather than at commit.
+     *
+     * <p>Needed wherever a unique constraint is translated into an {@code ApiException}:
+     * {@code save} only stages the insert in the persistence context, so the violation would
+     * otherwise surface inside {@code JpaTransactionManager.doCommit}, long after the
+     * {@code catch} block meant to handle it, and reach the client as a 500.
+     */
+    Unit saveAndFlush(Unit unit);
+
     Optional<Unit> findByTenantIdAndId(UUID tenantId, UUID id);
 
     List<Unit> findAllByTenantIdAndIdIn(UUID tenantId, Collection<UUID> ids);
@@ -35,7 +45,12 @@ public interface UnitRepository extends Repository<Unit, UUID> {
             + "AND u.status IN :statuses "
             + "AND (:projectId IS NULL OR u.projectId = :projectId) "
             + "AND (:phaseId IS NULL OR u.phaseId = :phaseId) "
-            + "AND (:type IS NULL OR lower(u.type) = lower(:type)) "
+            // cast(:type as string) is load-bearing, not decoration. With a bare :type
+            // Hibernate has nothing to infer the parameter's SQL type from when the value
+            // is null, binds it as untyped, and PostgreSQL fails to resolve lower(bytea).
+            // The cast states the type, so the null branch is a plain text comparison.
+            // The value arrives already lower-cased from UnitService.browse.
+            + "AND (cast(:type as string) IS NULL OR lower(u.type) = cast(:type as string)) "
             + "AND (:minPrice IS NULL OR u.listPrice >= :minPrice) "
             + "AND (:maxPrice IS NULL OR u.listPrice <= :maxPrice) "
             + "AND (:minArea IS NULL OR u.areaSqm >= :minArea) "

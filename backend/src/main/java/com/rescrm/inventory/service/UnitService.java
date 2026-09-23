@@ -26,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -104,7 +105,10 @@ public class UnitService {
         unit.recordActor(SecurityContext.require().userId(), true);
 
         try {
-            return units.save(unit);
+            // saveAndFlush, not save: the insert has to reach the database inside this try
+            // block. A plain save only stages it, and the violation would then surface
+            // during commit — past this catch, and out to the client as a 500.
+            return units.saveAndFlush(unit);
         } catch (DataIntegrityViolationException e) {
             // uniq_unit_code_per_project (C9). Reported rather than silently reused, so a
             // re-run of an import tells the operator which rows were already there.
@@ -285,8 +289,13 @@ public class UnitService {
                 ? DEFAULT_BROWSE_STATUSES
                 : statuses.stream().map(UnitStatus::code).toList();
 
+        // Lower-cased here rather than in the query: the comparison is case-insensitive
+        // because nobody types "Apartment" the same way twice, and doing the folding on the
+        // parameter leaves one function call in the SQL instead of two.
+        String typeFilter = blankToNull(type);
         return units.findFiltered(TenantContext.require(), statusCodes, projectId, phaseId,
-                blankToNull(type), minPrice, maxPrice, minArea, maxArea, pageable);
+                typeFilter == null ? null : typeFilter.toLowerCase(Locale.ROOT),
+                minPrice, maxPrice, minArea, maxArea, pageable);
     }
 
     /**

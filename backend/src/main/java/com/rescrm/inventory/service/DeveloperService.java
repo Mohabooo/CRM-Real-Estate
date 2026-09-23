@@ -144,7 +144,10 @@ public class DeveloperService {
 
     private Developer saveUnique(Developer developer) {
         try {
-            return developers.save(developer);
+            // saveAndFlush, not save: a plain save only stages the insert, so the unique
+            // violation would surface during commit rather than here, and reach the client
+            // as a 500 instead of the conflict it is.
+            return developers.saveAndFlush(developer);
         } catch (DataIntegrityViolationException e) {
             // uniq_developer_name_per_tenant. Two developers with the same name would make
             // every commission statement ambiguous about who owes what.

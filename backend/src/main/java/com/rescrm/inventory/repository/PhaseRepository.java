@@ -11,6 +11,12 @@ public interface PhaseRepository extends Repository<Phase, UUID> {
 
     Phase save(Phase phase);
 
+    /**
+     * Writes the row now rather than at commit, so a unique-constraint violation
+     * surfaces where the service translates it instead of inside the commit.
+     */
+    Phase saveAndFlush(Phase phase);
+
     Optional<Phase> findByTenantIdAndId(UUID tenantId, UUID id);
 
     List<Phase> findAllByTenantIdAndProjectIdOrderByNameAsc(UUID tenantId, UUID projectId);

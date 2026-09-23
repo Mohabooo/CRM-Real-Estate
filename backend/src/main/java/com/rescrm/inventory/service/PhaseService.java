@@ -95,7 +95,10 @@ public class PhaseService {
 
     private Phase saveUnique(Phase phase) {
         try {
-            return phases.save(phase);
+            // saveAndFlush, not save: a plain save only stages the insert, so the unique
+            // violation would surface during commit rather than here, and reach the client
+            // as a 500 instead of the conflict it is.
+            return phases.saveAndFlush(phase);
         } catch (DataIntegrityViolationException e) {
             throw new ApiException(ErrorCode.CONFLICT,
                     "This project already has a phase named '" + phase.name() + "'", e);

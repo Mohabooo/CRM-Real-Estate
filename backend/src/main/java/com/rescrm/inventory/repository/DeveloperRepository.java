@@ -17,6 +17,12 @@ public interface DeveloperRepository extends Repository<Developer, UUID> {
 
     Developer save(Developer developer);
 
+    /**
+     * Writes the row now rather than at commit, so a unique-constraint violation
+     * surfaces where the service translates it instead of inside the commit.
+     */
+    Developer saveAndFlush(Developer developer);
+
     Optional<Developer> findByTenantIdAndId(UUID tenantId, UUID id);
 
     Page<Developer> findAllByTenantIdOrderByNameAsc(UUID tenantId, Pageable pageable);
