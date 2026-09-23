@@ -36,5 +36,26 @@ public enum AuditAction {
     CUSTOMER_CREATED,
     CUSTOMER_UPDATED,
     CUSTOMER_NATIONAL_ID_ACCESSED,
-    ACTIVITY_LOGGED
+    ACTIVITY_LOGGED,
+
+    // Epic 3 — commercial models and inventory. Doc 18 section 2 marks every unit
+    // transition as audited, which is also what serves GET /units/{id}/history: the trail
+    // is the history, so there is no second table recording the same thing differently.
+    DEVELOPER_REGISTERED,
+    DEVELOPER_UPDATED,
+    DEVELOPER_DEACTIVATED,
+    DEVELOPER_REACTIVATED,
+    PROJECT_CREATED,
+    PROJECT_UPDATED,
+    PROJECT_STATUS_CHANGED,
+    PHASE_CREATED,
+    PHASE_UPDATED,
+    UNIT_CREATED,
+    UNIT_UPDATED,
+    UNIT_BLOCKED,
+    UNIT_UNBLOCKED,
+    UNIT_RESERVED,
+    UNIT_SOLD,
+    UNIT_RETURNED_TO_INVENTORY,
+    UNITS_IMPORTED
 }

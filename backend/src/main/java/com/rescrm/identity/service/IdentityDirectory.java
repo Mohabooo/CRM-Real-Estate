@@ -2,6 +2,7 @@ package com.rescrm.identity.service;
 
 import com.rescrm.identity.domain.User;
 import com.rescrm.identity.repository.BranchRepository;
+import com.rescrm.identity.repository.TenantRepository;
 import com.rescrm.identity.repository.UserRepository;
 import com.rescrm.platform.security.Role;
 import org.springframework.stereotype.Service;
@@ -34,10 +35,13 @@ public class IdentityDirectory {
 
     private final UserRepository users;
     private final BranchRepository branches;
+    private final TenantRepository tenants;
 
-    public IdentityDirectory(UserRepository users, BranchRepository branches) {
+    public IdentityDirectory(UserRepository users, BranchRepository branches,
+                             TenantRepository tenants) {
         this.users = users;
         this.branches = branches;
+        this.tenants = tenants;
     }
 
     /** The subset of a user that another module may see. Never carries a credential. */
@@ -61,5 +65,21 @@ public class IdentityDirectory {
     public boolean branchExists(UUID tenantId, UUID branchId) {
         return tenantId != null && branchId != null
                 && branches.existsByTenantIdAndId(tenantId, branchId);
+    }
+
+    /**
+     * The tenant's default commercial model, used to pre-fill a new project (doc 25
+     * section 3).
+     *
+     * <p>Returned as the opaque code it is stored as. The caller resolves it through a
+     * policy; identity neither knows nor cares what it means.
+     */
+    @Transactional(readOnly = true)
+    public String tenantDefaultCommercialModel(UUID tenantId) {
+        return tenants.findById(tenantId)
+                .map(tenant -> tenant.defaultCommercialModel())
+                .orElseThrow(() -> new IllegalStateException(
+                        "No tenant " + tenantId + "; a request cannot be authenticated "
+                                + "against a tenant that does not exist"));
     }
 }
