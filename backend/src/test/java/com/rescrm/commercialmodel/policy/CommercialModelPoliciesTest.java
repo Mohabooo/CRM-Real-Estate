@@ -78,6 +78,53 @@ class CommercialModelPoliciesTest {
     }
 
     @Nested
+    @DisplayName("collection — doc 25's second policy point")
+    class Collection {
+
+        @Test
+        @DisplayName("own_inventory: the tenant collects, so a deposit is its own cash")
+        void own_inventory_holds_the_money() {
+            CollectionPolicy policy = policies.collection("own_inventory");
+
+            assertThat(policy.recordsCustomerPayments()).isTrue();
+            assertThat(policy.depositMeaning()).isEqualTo(DepositMeaning.TENANT_CASH);
+            assertThat(policy.collectionMetricsApply()).isTrue();
+        }
+
+        @Test
+        @DisplayName("brokered_inventory: the developer collects, so no Payment may exist")
+        void brokered_records_no_payments() {
+            CollectionPolicy policy = policies.collection("brokered_inventory");
+
+            // R-PAY-0 and decision A13: a partially-populated ledger produces outstanding
+            // and overdue totals that look authoritative and are fiction.
+            assertThat(policy.recordsCustomerPayments()).isFalse();
+            assertThat(policy.depositMeaning())
+                    .isEqualTo(DepositMeaning.DEVELOPER_RECEIPT_CONFIRMATION);
+            assertThat(policy.collectionMetricsApply()).isFalse();
+        }
+
+        @Test
+        @DisplayName("the same deposit amount means two different things")
+        void the_amount_is_the_same_and_the_meaning_is_not() {
+            // This is the whole reason the policy point exists: the number an agent types
+            // is identical in both models, and what it commits the tenant to is not.
+            assertThat(policies.collection("own_inventory").depositMeaning())
+                    .isNotEqualTo(policies.collection("brokered_inventory").depositMeaning());
+        }
+
+        @Test
+        @DisplayName("every commercial model resolves a collection policy")
+        void every_model_resolves() {
+            for (CommercialModel model : CommercialModel.values()) {
+                assertThat(policies.collection(codeOf(model)))
+                        .as("no CollectionPolicy for %s", model)
+                        .isNotNull();
+            }
+        }
+    }
+
+    @Nested
     @DisplayName("resolution")
     class Resolution {
 

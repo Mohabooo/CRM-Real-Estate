@@ -326,6 +326,31 @@ class ArchitectureTest {
     }
 
     @Test
+    @DisplayName("The API layer never runs as the system or reads the tenant registry")
+    void request_paths_cannot_shed_their_caller() {
+        // SystemActor removes the principal so unattended work can run as doc 18's SYS
+        // actor, and PlatformTenantRegistry is the one narrow read that sees across
+        // tenants. Both are safe where they are: a sweep has no requester, and the
+        // registry returns ids under a SELECT-only policy that widens nothing else.
+        //
+        // In a request path either would be a way to shed the caller's identity — the
+        // controller would stop being the person who asked and start being nobody, with
+        // the audit trail recording a SYS transition for something a user did. That is
+        // not a code-review matter; it fails the build.
+        ArchRule rule = noClasses()
+                .that().resideInAPackage(BASE_PACKAGE + "..api..")
+                .should().dependOnClassesThat().haveFullyQualifiedName(
+                        BASE_PACKAGE + ".platform.security.SystemActor")
+                .orShould().dependOnClassesThat().haveFullyQualifiedName(
+                        BASE_PACKAGE + ".platform.tenancy.PlatformTenantRegistry")
+                .because("an endpoint that could run as the system could act with no "
+                        + "identifiable caller and read across tenants")
+                .allowEmptyShould(true);
+
+        rule.check(productionClasses);
+    }
+
+    @Test
     @DisplayName("Controllers do not contain business logic or touch repositories directly")
     void controllers_delegate() {
         ArchRule rule = noClasses()
