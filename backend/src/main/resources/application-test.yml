@@ -28,3 +28,10 @@ crm:
     # Nothing outside the test profile has a default. An unconfigured environment fails loudly
     # on first use rather than falling back to this value.
     field-encryption-key: "dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1leGFjdGx5ISE="
+
+  reservations:
+    expiry-sweep:
+      # Off in tests. A background sweep expiring fixtures mid-assertion would fail
+      # intermittently, and for reasons nobody would find quickly. The integration tests
+      # drive ReservationExpirySweep.sweep() directly and control the clock themselves.
+      enabled: false
