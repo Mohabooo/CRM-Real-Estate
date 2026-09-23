@@ -17,6 +17,11 @@ import java.math.BigDecimal;
  *
  * <p>Not applied automatically ({@code autoApply = false}): entities opt in per field, so the
  * choice is visible at the point of mapping rather than acting invisibly across the schema.
+ *
+ * <p>Every field using this converter must also declare
+ * {@code columnDefinition = MoneyColumns.AMOUNT}. The column is a PostgreSQL DOMAIN, which
+ * JDBC reports as {@code Types.DISTINCT}, so Hibernate's schema validation fails without it.
+ * {@link MoneyColumns} explains why, and the architecture test enforces it.
  */
 @Converter(autoApply = false)
 public class MoneyAmountConverter implements AttributeConverter<Money, BigDecimal> {

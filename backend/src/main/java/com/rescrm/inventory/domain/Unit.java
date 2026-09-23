@@ -2,6 +2,7 @@ package com.rescrm.inventory.domain;
 
 import com.rescrm.platform.money.Money;
 import com.rescrm.platform.money.persistence.MoneyAmountConverter;
+import com.rescrm.platform.money.persistence.MoneyColumns;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -64,8 +65,14 @@ public class Unit {
     @Column(name = "view")
     private String view;
 
+    /**
+     * {@code columnDefinition} is required, not decorative: the column is the
+     * {@code money_amount} domain, and JDBC reports a domain as {@code Types.DISTINCT}
+     * rather than {@code Types.NUMERIC}. Without the declaration Hibernate's schema
+     * validation rejects the mapping at startup. See {@link MoneyColumns}.
+     */
     @Convert(converter = MoneyAmountConverter.class)
-    @Column(name = "list_price", nullable = false)
+    @Column(name = "list_price", nullable = false, columnDefinition = MoneyColumns.AMOUNT)
     private Money listPrice;
 
     @Column(name = "status", nullable = false)

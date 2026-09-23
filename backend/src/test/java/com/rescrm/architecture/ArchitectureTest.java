@@ -15,6 +15,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import com.rescrm.commercialmodel.CommercialModel;
+import com.rescrm.platform.money.Money;
+import com.rescrm.platform.money.Percentage;
+import com.rescrm.platform.money.persistence.MoneyColumns;
+import jakarta.persistence.Column;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -223,6 +227,30 @@ class ArchitectureTest {
     }
 
     @Test
+    @DisplayName("Persistent Money and Percentage columns declare their SQL domain")
+    void money_columns_declare_their_domain() {
+        // The rule this encodes was learned the hard way in Epic 3. V1 created money_amount
+        // and rate_percentage as PostgreSQL DOMAINs and recorded that they are "transparent
+        // to JDBC, so no driver or mapping configuration depends on them". They are not:
+        // DatabaseMetaData reports a domain column as Types.DISTINCT carrying the domain's
+        // name, so Hibernate's schema validation rejects a mapping that does not name it —
+        // and declaring precision and scale does not help, because the validator then expects
+        // numeric(18,2) and still finds money_amount (Types#DISTINCT).
+        //
+        // It went unnoticed for three epics because no entity mapped a money column until
+        // units.list_price. Epics 5 to 8 add a few dozen more, so the rule is enforced here
+        // rather than remembered: the build fails now instead of the application context
+        // failing on somebody's first run.
+        assertThat(offendingMoneyColumns(Money.class, MoneyColumns.AMOUNT))
+                .as("Money columns missing columnDefinition = MoneyColumns.AMOUNT")
+                .isEmpty();
+
+        assertThat(offendingMoneyColumns(Percentage.class, MoneyColumns.RATE))
+                .as("Percentage columns missing columnDefinition = MoneyColumns.RATE")
+                .isEmpty();
+    }
+
+    @Test
     @DisplayName("Legacy date and time types are not used")
     void no_legacy_date_types() {
         ArchRule rule = noClasses()
@@ -350,6 +378,27 @@ class ArchitectureTest {
     // =================================================================================
     // Custom conditions
     // =================================================================================
+
+    /**
+     * Persistent fields of the given type whose {@code @Column} does not name the SQL domain.
+     *
+     * <p>Reported as a list rather than as an ArchUnit condition so the failure message names
+     * the fields and the fix in one line, which is what somebody adding the twentieth money
+     * column at the end of a long day actually needs.
+     */
+    private static List<String> offendingMoneyColumns(Class<?> fieldType, String expected) {
+        String constant = expected.equals(MoneyColumns.AMOUNT) ? "AMOUNT" : "RATE";
+        return StreamSupport.stream(productionClasses.spliterator(), false)
+                .flatMap(javaClass -> javaClass.getFields().stream())
+                .filter(field -> field.getRawType().isEquivalentTo(fieldType))
+                .filter(field -> field.isAnnotatedWith(Column.class))
+                .filter(field -> !expected.equals(
+                        field.getAnnotationOfType(Column.class).columnDefinition()))
+                .map(field -> field.getFullName()
+                        + " -> add columnDefinition = MoneyColumns." + constant)
+                .sorted()
+                .toList();
+    }
 
     private static ArchCondition<JavaMethod> notAcceptTheCommercialModelEnum() {
         return new ArchCondition<>("not accept a CommercialModel parameter") {
