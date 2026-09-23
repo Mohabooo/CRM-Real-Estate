@@ -25,18 +25,27 @@ public class CommercialModelPolicies {
 
     private final Map<CommercialModel, InventoryOwnershipPolicy> inventoryOwnership =
             new EnumMap<>(CommercialModel.class);
+    private final Map<CommercialModel, CollectionPolicy> collection =
+            new EnumMap<>(CommercialModel.class);
 
     public CommercialModelPolicies() {
         inventoryOwnership.put(CommercialModel.OWN_INVENTORY, new OwnInventoryOwnership());
         inventoryOwnership.put(CommercialModel.BROKERED_INVENTORY,
                 new BrokeredInventoryOwnership());
 
+        collection.put(CommercialModel.OWN_INVENTORY, new OwnInventoryCollection());
+        collection.put(CommercialModel.BROKERED_INVENTORY, new BrokeredInventoryCollection());
+
+        requireComplete("InventoryOwnershipPolicy", inventoryOwnership);
+        requireComplete("CollectionPolicy", collection);
+    }
+
+    private static void requireComplete(String policy, Map<CommercialModel, ?> resolved) {
         for (CommercialModel model : CommercialModel.values()) {
-            if (!inventoryOwnership.containsKey(model)) {
-                throw new IllegalStateException(
-                        "No InventoryOwnershipPolicy for commercial model " + model
-                                + ". Every model must resolve every policy; a missing entry "
-                                + "would otherwise surface as wrong behaviour at run time.");
+            if (!resolved.containsKey(model)) {
+                throw new IllegalStateException("No " + policy + " for commercial model "
+                        + model + ". Every model must resolve every policy; a missing entry "
+                        + "would otherwise surface as wrong behaviour at run time.");
             }
         }
     }
@@ -47,6 +56,14 @@ public class CommercialModelPolicies {
      */
     public InventoryOwnershipPolicy inventoryOwnership(String modelCode) {
         return inventoryOwnership.get(resolve(modelCode));
+    }
+
+    /**
+     * @param modelCode the stored code, e.g. {@code brokered_inventory}
+     * @throws IllegalArgumentException naming the accepted values, for a usable API error
+     */
+    public CollectionPolicy collection(String modelCode) {
+        return collection.get(resolve(modelCode));
     }
 
     private static CommercialModel resolve(String modelCode) {
