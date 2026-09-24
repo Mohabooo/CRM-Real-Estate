@@ -44,7 +44,15 @@ public class PlatformTenantRegistry {
     public List<UUID> activeTenantIds() {
         return jdbc.execute((ConnectionCallback<List<UUID>>) connection -> {
             try (Statement statement = connection.createStatement()) {
-                statement.execute("SET LOCAL app.platform_task = '" + PLATFORM_TASK + "'");
+                // Plain SET, not SET LOCAL. SET LOCAL outside a transaction block emits a
+                // warning and has no effect at all, and this runs from a sweep that is not
+                // itself transactional — so the SELECT below would see an empty flag, match
+                // no policy and return zero tenants. In production that is a sweep that
+                // silently never runs; in tests it passes, because the test connection is a
+                // superuser and bypasses RLS entirely. Verified against PostgreSQL 16 over
+                // JDBC as a non-superuser: SET LOCAL here returns 0 tenants, plain SET
+                // returns them all. The finally block below resets it either way.
+                statement.execute("SET app.platform_task = '" + PLATFORM_TASK + "'");
                 try (ResultSet rs = statement.executeQuery(
                         "SELECT id FROM tenants WHERE status = 'active' ORDER BY created_at")) {
                     List<UUID> ids = new ArrayList<>();
