@@ -1,5 +1,8 @@
 package com.rescrm.inventory.domain;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.rescrm.platform.api.CodedEnum;
+
 import java.util.Set;
 
 /**
@@ -8,7 +11,7 @@ import java.util.Set;
  * <p>Distinct from the commercial model, which is fixed at creation and is not a lifecycle at
  * all. A project moves through these states; it never changes model.
  */
-public enum ProjectStatus {
+public enum ProjectStatus implements CodedEnum {
 
     /** Being set up. Units may be loaded; nothing is sellable yet. */
     DRAFT("draft"),
@@ -28,13 +31,27 @@ public enum ProjectStatus {
         this.code = code;
     }
 
+    @Override
     public String code() {
         return code;
     }
 
+    /**
+     * Accepts the wire code, and the Java name as a fallback.
+     *
+     * <p>{@code @JsonCreator} so a request body may send {@code "draft"} — the value every
+     * response carries — rather than only {@code "DRAFT"}. A client that echoes back a value
+     * it was given should not get a 400 for it.
+     */
+    @JsonCreator
     public static ProjectStatus fromCode(String code) {
         for (ProjectStatus status : values()) {
             if (status.code.equals(code)) {
+                return status;
+            }
+        }
+        for (ProjectStatus status : values()) {
+            if (status.name().equalsIgnoreCase(code)) {
                 return status;
             }
         }

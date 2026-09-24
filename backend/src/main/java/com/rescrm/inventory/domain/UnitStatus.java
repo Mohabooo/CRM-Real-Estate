@@ -1,5 +1,8 @@
 package com.rescrm.inventory.domain;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.rescrm.platform.api.CodedEnum;
+
 import java.util.Set;
 
 /**
@@ -12,7 +15,7 @@ import java.util.Set;
  * consequence of reservation and deal actions, so every move is made by the system on behalf
  * of one of those, or by operations blocking a unit with a reason.
  */
-public enum UnitStatus {
+public enum UnitStatus implements CodedEnum {
 
     /** In inventory and sellable. */
     AVAILABLE("available"),
@@ -32,13 +35,27 @@ public enum UnitStatus {
         this.code = code;
     }
 
+    @Override
     public String code() {
         return code;
     }
 
+    /**
+     * Accepts the wire code, and the Java name as a fallback.
+     *
+     * <p>{@code @JsonCreator} so a request body may send {@code "draft"} — the value every
+     * response carries — rather than only {@code "DRAFT"}. A client that echoes back a value
+     * it was given should not get a 400 for it.
+     */
+    @JsonCreator
     public static UnitStatus fromCode(String code) {
         for (UnitStatus status : values()) {
             if (status.code.equals(code)) {
+                return status;
+            }
+        }
+        for (UnitStatus status : values()) {
+            if (status.name().equalsIgnoreCase(code)) {
                 return status;
             }
         }
