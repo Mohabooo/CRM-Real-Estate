@@ -16,6 +16,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.web.servlet.MockMvc;
@@ -49,7 +50,16 @@ class CrmApiScopeIT extends AbstractPostgresIT {
 
         static final AtomicReference<AuthenticatedPrincipal> CURRENT = new AtomicReference<>();
 
+        /**
+         * Takes precedence over {@code SessionPrincipalResolver}.
+         *
+         * <p>Marked primary since authentication exists: these tests are about what a caller
+         * of a given role and branch may SEE, and driving a real sign-in for each of them
+         * would test the same login path over and over while making the scope assertions
+         * harder to read. {@code AuthenticationApiIT} covers the real cookie path.
+         */
         @Bean
+        @Primary
         PrincipalResolver testPrincipalResolver() {
             return request -> Optional.ofNullable(CURRENT.get());
         }
