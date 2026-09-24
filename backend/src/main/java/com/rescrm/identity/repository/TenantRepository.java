@@ -18,6 +18,12 @@ public interface TenantRepository extends Repository<Tenant, UUID> {
 
     Tenant save(Tenant tenant);
 
+    /**
+     * Writes now rather than at commit, so a duplicate slug surfaces as a catchable
+     * exception inside provisioning rather than at commit time, past every catch block.
+     */
+    Tenant saveAndFlush(Tenant tenant);
+
     Optional<Tenant> findById(UUID id);
 
     boolean existsById(UUID id);
