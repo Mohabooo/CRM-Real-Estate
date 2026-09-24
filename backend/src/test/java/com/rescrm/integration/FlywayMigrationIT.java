@@ -32,7 +32,7 @@ class FlywayMigrationIT extends AbstractPostgresIT {
                 "SELECT version FROM flyway_schema_history WHERE success = true ORDER BY installed_rank",
                 String.class);
 
-        assertThat(versions).containsExactly("1", "2", "3", "4", "5");
+        assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6");
     }
 
     @Test
@@ -87,9 +87,13 @@ class FlywayMigrationIT extends AbstractPostgresIT {
         // Epic 4 adds reservations, and with it doc 22's C2 — the half of the double-sell
         // guard Epic 3 could not express, because the table did not exist. 'deals' is still
         // absent: C1 belongs to it, and it belongs to Epic 5.
+        //
+        // V6 adds sessions, finishing the authentication Epic 1 deliberately left open. It
+        // is an identity table arriving late rather than a new epic's: doc 23 listed /auth
+        // from the start and doc 28 section 6 specified the mechanism.
         assertThat(tables).containsExactlyInAnyOrder(
                 "flyway_schema_history",
-                "tenants", "branches", "users", "invitations", "audit_events",
+                "tenants", "branches", "users", "invitations", "audit_events", "sessions",
                 "leads", "customers", "activities",
                 "developers", "projects", "phases", "units",
                 "reservations");
@@ -104,12 +108,13 @@ class FlywayMigrationIT extends AbstractPostgresIT {
     @Test
     @DisplayName("every business table enforces row-level security, owner included")
     void every_table_forces_row_level_security() {
+        // Every table except Flyway's own, rather than a list to keep in step. A named list
+        // silently stops covering whatever is added next, which is precisely the kind of gap
+        // this gate exists to close — and the CI job alongside it already works this way.
         List<String> unprotected = jdbc.queryForList(
                 "SELECT relname FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace "
                         + "WHERE n.nspname = 'public' AND c.relkind = 'r' "
-                        + "AND relname IN ('tenants','branches','users','invitations',"
-                        + "'audit_events','leads','customers','activities',"
-                        + "'developers','projects','phases','units','reservations') "
+                        + "AND relname <> 'flyway_schema_history' "
                         + "AND (c.relrowsecurity = false OR c.relforcerowsecurity = false)",
                 String.class);
 
