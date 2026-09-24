@@ -1,30 +1,48 @@
 import { createBrowserRouter, Navigate } from 'react-router-dom';
 import { AppShell } from '@/components/AppShell';
+import { LoginPage } from '@/features/auth/LoginPage';
+import { RequireAuth } from '@/features/auth/RequireAuth';
 import { HomePage } from '@/features/home/HomePage';
+import { InventoryPage } from '@/features/inventory/InventoryPage';
+import { HoldsPage } from '@/features/reservations/HoldsPage';
 import { SystemStatusPage } from '@/features/system/SystemStatusPage';
 
 /**
  * Route table.
  *
- * Flat and small by design: the real information architecture follows the role-driven layouts
- * in doc 21 section 4, which need the business modules to exist first. Feature routes will be
- * added per module rather than centralised here indefinitely.
+ * Everything but the login page sits behind {@link RequireAuth}. That is a convenience
+ * rather than a boundary — every endpoint refuses an unauthenticated request on its own, so
+ * removing the guard would hide the screens' contents, not expose them.
+ *
+ * The real information architecture still follows doc 21 section 4's role-driven layouts;
+ * these are the routes the first vertical slice needs.
  */
 export const router = createBrowserRouter(
   [
     {
+      path: '/login',
+      element: <LoginPage />,
+    },
+    {
       path: '/',
-      element: <AppShell />,
+      element: <RequireAuth />,
       children: [
-        { index: true, element: <HomePage /> },
-        { path: 'system', element: <SystemStatusPage /> },
-        { path: '*', element: <Navigate to="/" replace /> },
+        {
+          element: <AppShell />,
+          children: [
+            { index: true, element: <Navigate to="/inventory" replace /> },
+            { path: 'inventory', element: <InventoryPage /> },
+            { path: 'holds', element: <HoldsPage /> },
+            { path: 'about', element: <HomePage /> },
+            { path: 'system', element: <SystemStatusPage /> },
+            { path: '*', element: <Navigate to="/inventory" replace /> },
+          ],
+        },
       ],
     },
   ],
   {
-    // Opt in to the v7 behaviours now rather than inheriting a migration later. Adopting
-    // them while the route table is two entries long costs nothing.
+    // Opt in to the v7 behaviours now rather than inheriting a migration later.
     future: {
       v7_relativeSplatPath: true,
       v7_fetcherPersist: true,

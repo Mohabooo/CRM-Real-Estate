@@ -5,7 +5,10 @@
   },
   "nav": {
     "home": "Home",
-    "system": "System status"
+    "system": "System status",
+    "inventory": "Inventory",
+    "holds": "Holds",
+    "signOut": "Sign out"
   },
   "language": {
     "label": "Language",
@@ -54,5 +57,104 @@
     "retry": "Try again",
     "reload": "Reload the page",
     "correlationId": "Reference"
+  },
+  "common": {
+    "cancel": "Cancel",
+    "rowsPerPage": "Rows per page"
+  },
+  "login": {
+    "heading": "Sign in",
+    "intro": "Your company key tells us which company's account to sign you into.",
+    "company": "Company key",
+    "companyHint": "For example: nile-towers",
+    "email": "Email address",
+    "password": "Password",
+    "signIn": "Sign in",
+    "signingIn": "Signing in…",
+    "failed": "Sign-in failed. Please try again.",
+    "unreachable": "The server is not reachable. Check your connection and try again."
+  },
+  "role": {
+    "OWNER": "Owner",
+    "BRANCH_MANAGER": "Branch manager",
+    "TEAM_LEADER": "Team leader",
+    "SALES_AGENT": "Sales agent",
+    "OPERATIONS": "Operations",
+    "FINANCE": "Finance",
+    "PLATFORM_ADMIN": "Platform admin"
+  },
+  "inventory": {
+    "heading": "Inventory",
+    "intro": "Units across every project. Sold and blocked units are hidden unless you ask for them.",
+    "project": "Project",
+    "allProjects": "All projects",
+    "status": "Status",
+    "statusHint": "Default hides sold and blocked",
+    "defaultView": "Available and held",
+    "maxPrice": "Maximum price",
+    "priceInvalid": "Enter an amount such as 2500000 or 2500000.00",
+    "code": "Unit",
+    "type": "Type",
+    "area": "Area (m²)",
+    "listPrice": "List price",
+    "action": "Action",
+    "empty": "No units match these filters.",
+    "loadFailed": "The inventory could not be loaded."
+  },
+  "unitStatus": {
+    "available": "Available",
+    "reserved": "Held",
+    "sold": "Sold",
+    "blocked": "Blocked"
+  },
+  "reservationStatus": {
+    "pending": "Pending",
+    "confirmed": "Confirmed",
+    "converted": "Converted",
+    "released": "Released",
+    "expired": "Expired",
+    "cancelled": "Cancelled"
+  },
+  "depositMeaning": {
+    "TENANT_CASH": "Cash held by your company",
+    "DEVELOPER_RECEIPT_CONFIRMATION": "Confirmation the developer received it"
+  },
+  "holds": {
+    "heading": "Holds",
+    "intro": "Units held for a buyer. A hold keeps a unit off the market until it expires or is released.",
+    "unit": "Unit",
+    "status": "Status",
+    "expires": "Expires",
+    "deposit": "Deposit",
+    "depositPending": "not received",
+    "depositOptional": "Optional. Leave empty if no deposit was taken.",
+    "depositInvalid": "Enter an amount such as 50000 or 50000.00",
+    "depositReceived": "Deposit received",
+    "empty": "You have no holds.",
+    "expired": "Expired",
+    "daysLeft": "{{count}} days left",
+    "hoursLeft": "{{count}} hours left",
+    "minutesLeft": "{{count}} minutes left",
+    "place": "Place hold",
+    "placeTitle": "Place a hold on unit {{code}}",
+    "placed": "Unit {{code}} is now held.",
+    "placeFailed": "The hold could not be placed.",
+    "party": "Held for",
+    "partyHint": "A hold is for one customer or one lead.",
+    "partiesUnavailable": "Customers and leads could not be loaded.",
+    "customers": "Customers",
+    "leads": "Leads",
+    "expiryNote": "The hold expires after your company's standard period. You can extend it later.",
+    "extend": "Extend",
+    "extendTitle": "Extend this hold",
+    "newExpiry": "New expiry",
+    "release": "Release",
+    "releaseTitle": "Release this hold",
+    "releaseExplain": "The unit goes back on the market immediately. This is recorded against your name.",
+    "reason": "Reason",
+    "reasonRequired": "Required.",
+    "reasonOptional": "Optional.",
+    "loadFailed": "Your holds could not be loaded.",
+    "actionFailed": "That did not work. Please try again."
   }
 }

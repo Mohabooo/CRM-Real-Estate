@@ -5,7 +5,10 @@
   },
   "nav": {
     "home": "الرئيسية",
-    "system": "حالة النظام"
+    "system": "حالة النظام",
+    "inventory": "الوحدات",
+    "holds": "الحجوزات",
+    "signOut": "تسجيل الخروج"
   },
   "language": {
     "label": "اللغة",
@@ -54,5 +57,104 @@
     "retry": "إعادة المحاولة",
     "reload": "إعادة تحميل الصفحة",
     "correlationId": "المرجع"
+  },
+  "common": {
+    "cancel": "إلغاء",
+    "rowsPerPage": "صفوف في الصفحة"
+  },
+  "login": {
+    "heading": "تسجيل الدخول",
+    "intro": "مُعرّف الشركة يحدد الحساب الذي ستدخل إليه.",
+    "company": "مُعرّف الشركة",
+    "companyHint": "مثال: nile-towers",
+    "email": "البريد الإلكتروني",
+    "password": "كلمة المرور",
+    "signIn": "تسجيل الدخول",
+    "signingIn": "جارٍ تسجيل الدخول…",
+    "failed": "تعذّر تسجيل الدخول. حاول مرة أخرى.",
+    "unreachable": "تعذّر الوصول إلى الخادم. تحقق من الاتصال وحاول مرة أخرى."
+  },
+  "role": {
+    "OWNER": "المالك",
+    "BRANCH_MANAGER": "مدير الفرع",
+    "TEAM_LEADER": "قائد الفريق",
+    "SALES_AGENT": "مندوب مبيعات",
+    "OPERATIONS": "العمليات",
+    "FINANCE": "المالية",
+    "PLATFORM_ADMIN": "مسؤول المنصة"
+  },
+  "inventory": {
+    "heading": "الوحدات",
+    "intro": "الوحدات في جميع المشروعات. الوحدات المباعة والمحجوبة مخفية ما لم تطلبها.",
+    "project": "المشروع",
+    "allProjects": "كل المشروعات",
+    "status": "الحالة",
+    "statusHint": "الوضع الافتراضي يخفي المباعة والمحجوبة",
+    "defaultView": "المتاحة والمحجوزة",
+    "maxPrice": "أقصى سعر",
+    "priceInvalid": "أدخل مبلغًا مثل 2500000 أو 2500000.00",
+    "code": "الوحدة",
+    "type": "النوع",
+    "area": "المساحة (م²)",
+    "listPrice": "سعر القائمة",
+    "action": "إجراء",
+    "empty": "لا توجد وحدات مطابقة لهذه المرشحات.",
+    "loadFailed": "تعذّر تحميل الوحدات."
+  },
+  "unitStatus": {
+    "available": "متاحة",
+    "reserved": "محجوزة",
+    "sold": "مباعة",
+    "blocked": "محجوبة"
+  },
+  "reservationStatus": {
+    "pending": "قيد الانتظار",
+    "confirmed": "مؤكَّد",
+    "converted": "محوَّل",
+    "released": "مُفرج عنه",
+    "expired": "منتهي",
+    "cancelled": "ملغي"
+  },
+  "depositMeaning": {
+    "TENANT_CASH": "مبلغ محتفظ به لدى شركتك",
+    "DEVELOPER_RECEIPT_CONFIRMATION": "تأكيد استلام المطوّر للمبلغ"
+  },
+  "holds": {
+    "heading": "الحجوزات",
+    "intro": "وحدات محجوزة لمشترٍ. الحجز يُبقي الوحدة خارج السوق حتى ينتهي أو يُفرج عنه.",
+    "unit": "الوحدة",
+    "status": "الحالة",
+    "expires": "ينتهي",
+    "deposit": "العربون",
+    "depositPending": "لم يُستلم",
+    "depositOptional": "اختياري. اتركه فارغًا إذا لم يُؤخذ عربون.",
+    "depositInvalid": "أدخل مبلغًا مثل 50000 أو 50000.00",
+    "depositReceived": "تم استلام العربون",
+    "empty": "لا توجد لديك حجوزات.",
+    "expired": "منتهي",
+    "daysLeft": "متبقٍ {{count}} يوم",
+    "hoursLeft": "متبقٍ {{count}} ساعة",
+    "minutesLeft": "متبقٍ {{count}} دقيقة",
+    "place": "حجز",
+    "placeTitle": "حجز الوحدة {{code}}",
+    "placed": "تم حجز الوحدة {{code}}.",
+    "placeFailed": "تعذّر إتمام الحجز.",
+    "party": "الحجز لصالح",
+    "partyHint": "الحجز يكون لعميل واحد أو عميل محتمل واحد.",
+    "partiesUnavailable": "تعذّر تحميل العملاء والعملاء المحتملين.",
+    "customers": "العملاء",
+    "leads": "العملاء المحتملون",
+    "expiryNote": "ينتهي الحجز بعد المدة المعتمدة في شركتك. يمكنك تمديده لاحقًا.",
+    "extend": "تمديد",
+    "extendTitle": "تمديد الحجز",
+    "newExpiry": "تاريخ الانتهاء الجديد",
+    "release": "إفراج",
+    "releaseTitle": "الإفراج عن الحجز",
+    "releaseExplain": "تعود الوحدة إلى السوق فورًا، ويُسجَّل ذلك باسمك.",
+    "reason": "السبب",
+    "reasonRequired": "مطلوب.",
+    "reasonOptional": "اختياري.",
+    "loadFailed": "تعذّر تحميل حجوزاتك.",
+    "actionFailed": "لم يتم تنفيذ الإجراء. حاول مرة أخرى."
   }
 }
