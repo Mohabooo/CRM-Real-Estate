@@ -11,10 +11,12 @@ import {
 } from '@/theme/direction';
 import { buildTheme } from '@/theme/theme';
 import { persistLanguage, type SupportedLanguage } from '@/i18n';
+import { AuthProvider } from '@/features/auth/AuthProvider';
 import { LanguageContext } from './LanguageContext';
 
 /**
- * Composition root for cross-cutting providers: direction-aware styling, theme and language.
+ * Composition root for cross-cutting providers: direction-aware styling, theme, language and
+ * the session.
  *
  * Direction is derived from the active language rather than toggled independently, so the two
  * can never disagree — an Arabic interface laid out left-to-right is a bug that is tedious to
@@ -53,7 +55,7 @@ export function AppProviders({ children }: { children: ReactNode }) {
       <CacheProvider value={cache}>
         <ThemeProvider theme={theme}>
           <CssBaseline />
-          {children}
+          <AuthProvider>{children}</AuthProvider>
         </ThemeProvider>
       </CacheProvider>
     </LanguageContext.Provider>

@@ -9,6 +9,29 @@ export interface RequestOptions {
   headers?: Record<string, string>;
   /** Sent as Idempotency-Key. Required by the API for money-affecting writes (doc 23). */
   idempotencyKey?: string;
+  /**
+   * Suppresses the session-expiry handler for this call.
+   *
+   * Set on sign-in, where a 401 means "those details are wrong" rather than "your session
+   * ended". Without it, a mistyped password would sign the caller out of a session they
+   * never had and bounce them to the page they are already on.
+   */
+  expected401?: boolean;
+}
+
+type UnauthorizedHandler = () => void;
+
+let onUnauthorized: UnauthorizedHandler | null = null;
+
+/**
+ * Registers what to do when the server says the session is gone.
+ *
+ * A session can end between one request and the next — it expires, or an administrator
+ * deactivates the account — and every screen would otherwise have to handle that itself.
+ * One handler, registered by the auth provider, keeps that out of every feature.
+ */
+export function setUnauthorizedHandler(handler: UnauthorizedHandler | null): void {
+  onUnauthorized = handler;
 }
 
 function generateCorrelationId(): string {
@@ -71,7 +94,11 @@ export async function request<T>(path: string, options: RequestOptions = {}): Pr
   const payload: unknown = text.length > 0 ? safeParse(text) : undefined;
 
   if (!response.ok) {
-    throw toApiError(payload, response, correlationId);
+    const error = toApiError(payload, response, correlationId);
+    if (error.status === 401 && !options.expected401) {
+      onUnauthorized?.();
+    }
+    throw error;
   }
 
   return payload as T;
@@ -116,4 +143,28 @@ export const apiClient = {
     request<T>(path, { ...options, method: 'GET' }),
   post: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, 'method' | 'body'>) =>
     request<T>(path, { ...options, method: 'POST', body }),
+  patch: <T>(path: string, body?: unknown, options?: Omit<RequestOptions, 'method' | 'body'>) =>
+    request<T>(path, { ...options, method: 'PATCH', body }),
 };
+
+/**
+ * Builds a query string, leaving out anything unset.
+ *
+ * A repeated key produces a repeated parameter, which is what the API's list-valued filters
+ * expect — `?status=available&status=reserved` rather than a comma-joined string.
+ */
+export function queryString(params: Record<string, string | number | string[] | undefined>): string {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === '') {
+      continue;
+    }
+    if (Array.isArray(value)) {
+      value.forEach((entry) => search.append(key, entry));
+    } else {
+      search.append(key, String(value));
+    }
+  }
+  const query = search.toString();
+  return query === '' ? '' : `?${query}`;
+}
