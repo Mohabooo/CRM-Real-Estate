@@ -32,3 +32,9 @@ crm:
     # then export it as CRM_FIELD_ENCRYPTION_KEY before starting the application. Keep the same
     # value between restarts or previously stored identifiers become unreadable.
     field-encryption-key: ${CRM_FIELD_ENCRYPTION_KEY:}
+
+    session:
+      # Local development runs on http://localhost, where a Secure cookie is never sent back
+      # and sign-in appears to succeed and then silently fail on the next request. Off here
+      # and only here; the default in application.yml stays true everywhere else.
+      cookie-secure: false

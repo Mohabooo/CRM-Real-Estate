@@ -27,9 +27,12 @@ import java.util.Optional;
  * nominate the tenant it wants to act as — which is the difference between tenant isolation
  * and the appearance of it (doc 28, section 4).
  *
- * <p>With no {@link PrincipalResolver} bean present, every protected path answers 401. That is
- * deliberate: authentication lands in a later increment, and an application that fails closed
- * until then is safer than one carrying a permissive stand-in.
+ * <p>With no {@link PrincipalResolver} bean present, every protected path answers 401. That
+ * stayed true through Epics 1 to 4, deliberately: an application that fails closed is safer
+ * than one carrying a permissive stand-in, and a stand-in that trusts a header is the exact
+ * vulnerability the two-layer isolation design exists to prevent. The seam is now filled by
+ * {@code SessionPrincipalResolver}; the behaviour below is unchanged and still applies
+ * whenever no resolver is present.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
@@ -41,11 +44,18 @@ public class TenantAuthenticationFilter extends OncePerRequestFilter {
      * <p>Invitation acceptance is here by necessity: the person presenting an invitation token
      * has no account yet, so requiring authentication would make the invitation unusable. The
      * token itself is the credential, and it is verified by hash inside the service.
+     *
+     * <p>Login for the obvious reason. Logout so that clearing a cookie always works: making
+     * it authenticated would mean the one case where somebody most needs to sign out — an
+     * expired session, or an account deactivated underneath them — answers 401 and leaves the
+     * cookie sitting in the browser.
      */
     private static final List<String> PUBLIC_PATHS = List.of(
             "/actuator",
             "/api/v1/platform/info",
-            "/api/v1/invitations/accept");
+            "/api/v1/invitations/accept",
+            "/api/v1/auth/login",
+            "/api/v1/auth/logout");
 
     private final Optional<PrincipalResolver> principalResolver;
     private final ObjectMapper objectMapper;

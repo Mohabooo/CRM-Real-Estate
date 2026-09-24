@@ -29,6 +29,11 @@ crm:
     # on first use rather than falling back to this value.
     field-encryption-key: "dGVzdC1vbmx5LWtleS0zMi1ieXRlcy1leGFjdGx5ISE="
 
+    session:
+      # MockMvc and the test client speak plain HTTP, where a Secure cookie is never sent
+      # back. Every authenticated test would then look like an authentication bug.
+      cookie-secure: false
+
   reservations:
     expiry-sweep:
       # Off in tests. A background sweep expiring fixtures mid-assertion would fail

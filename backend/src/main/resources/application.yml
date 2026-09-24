@@ -82,6 +82,28 @@ logging:
     com.rescrm: INFO
     org.flywaydb: INFO
 
+crm:
+  security:
+    # Origins allowed to make state-changing requests, beyond this server's own. Empty is
+    # correct for the ordinary deployment where the frontend is served from the same origin
+    # as the API — including the development proxy, which exists to produce exactly that.
+    # List a frontend host here only if it genuinely sits somewhere else.
+    allowed-origins: ${CRM_ALLOWED_ORIGINS:}
+
+    session:
+      # A working day. Long enough that an agent is not signed out between viewings, short
+      # enough that an unattended desk does not stay open overnight.
+      idle-timeout: ${CRM_SESSION_IDLE_TIMEOUT:PT8H}
+
+      # The ceiling, never extended by use. Without it a session kept warm by an attacker
+      # would live forever, which is the failure the sliding timeout alone cannot catch.
+      absolute-lifetime: ${CRM_SESSION_ABSOLUTE_LIFETIME:P7D}
+
+      # Secure by default; override only for local HTTP development, where a Secure cookie
+      # is never sent and sign-in appears to succeed and then silently fail.
+      cookie-secure: ${CRM_SESSION_COOKIE_SECURE:true}
+      cookie-same-site: ${CRM_SESSION_COOKIE_SAME_SITE:Lax}
+
 app:
   # Placeholder for tenancy configuration consumed from Epic 1 onward.
   tenancy:

@@ -31,14 +31,32 @@ public final class IdentityDtos {
     private IdentityDtos() {
     }
 
-    public record TenantResponse(UUID id, String name, String status,
+    public record TenantResponse(UUID id, String name, String slug, String status,
                                  String defaultCommercialModel, String settings,
                                  OffsetDateTime createdAt) {
 
         public static TenantResponse from(Tenant tenant) {
-            return new TenantResponse(tenant.id(), tenant.name(), tenant.status().code(),
-                    tenant.defaultCommercialModel(), tenant.settings(), tenant.createdAt());
+            return new TenantResponse(tenant.id(), tenant.name(), tenant.slug(),
+                    tenant.status().code(), tenant.defaultCommercialModel(),
+                    tenant.settings(), tenant.createdAt());
         }
+    }
+
+    /**
+     * The sign-in form.
+     *
+     * <p>{@code company} is the tenant slug, and it is here because {@code users.email} is
+     * unique per tenant rather than globally (C9): the same person may hold accounts in two
+     * tenants, so an address and a password do not identify an account on their own.
+     *
+     * <p>No length bound on the password beyond a sane ceiling, and no character rules. A
+     * minimum is enforced where passwords are set, not where they are checked — rejecting a
+     * short password at login would only tell an attacker their guess was too short to be
+     * worth trying.
+     */
+    public record SignInRequest(@NotBlank @Size(max = 63) String company,
+                                @NotBlank @Size(max = 320) String email,
+                                @NotBlank @Size(max = 200) String password) {
     }
 
     public record BranchResponse(UUID id, String name, boolean active,

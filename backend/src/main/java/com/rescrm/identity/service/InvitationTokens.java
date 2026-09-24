@@ -1,26 +1,16 @@
 package com.rescrm.identity.service;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.security.SecureRandom;
-import java.util.Base64;
-import java.util.HexFormat;
+import com.rescrm.platform.security.RandomTokens;
 
 /**
- * Generates single-use invitation tokens and the hashes that are stored in their place.
+ * Single-use invitation tokens.
  *
- * <p>256 bits from {@link SecureRandom}, so guessing one is not a realistic attack, and only
- * the SHA-256 of it is persisted. Unlike a password this needs no slow KDF: the token is
- * already high-entropy random, so there is nothing for an offline attacker to grind.
- *
- * <p>The raw token exists exactly once, in the return value of {@link #issue()}. It is handed
- * to the caller to deliver and is never written to the database or to a log.
+ * <p>A thin naming layer over {@link RandomTokens}, which sessions use as well. The
+ * generation and hashing are identical and deliberately live in one place: two copies of
+ * security-critical code is one copy too many, and the one that gets improved is never the
+ * one being read.
  */
 public final class InvitationTokens {
-
-    private static final SecureRandom RANDOM = new SecureRandom();
-    private static final int TOKEN_BYTES = 32;
 
     private InvitationTokens() {
     }
@@ -30,22 +20,11 @@ public final class InvitationTokens {
     }
 
     public static IssuedToken issue() {
-        byte[] bytes = new byte[TOKEN_BYTES];
-        RANDOM.nextBytes(bytes);
-        String rawToken = Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
-        return new IssuedToken(rawToken, hash(rawToken));
+        RandomTokens.IssuedToken issued = RandomTokens.issue();
+        return new IssuedToken(issued.rawToken(), issued.tokenHash());
     }
 
     public static String hash(String rawToken) {
-        if (rawToken == null || rawToken.isBlank()) {
-            throw new IllegalArgumentException("token must not be blank");
-        }
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(
-                    digest.digest(rawToken.getBytes(StandardCharsets.UTF_8)));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is unavailable in this JVM", e);
-        }
+        return RandomTokens.hash(rawToken);
     }
 }
