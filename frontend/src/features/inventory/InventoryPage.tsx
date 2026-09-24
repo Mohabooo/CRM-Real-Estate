@@ -189,7 +189,7 @@ export function InventoryPage() {
               <TableCell>{t('inventory.project')}</TableCell>
               <TableCell>{t('inventory.type')}</TableCell>
               <TableCell sx={{ textAlign: 'end' }}>{t('inventory.area')}</TableCell>
-              <TableCell sx={{ textAlign: 'end' }}>{t('inventory.listPrice')}</TableCell>
+              <TableCell sx={{ textAlign: 'end' }}>{t('inventory.listPriceWithCurrency')}</TableCell>
               <TableCell>{t('inventory.status')}</TableCell>
               <TableCell sx={{ textAlign: 'end' }}>{t('inventory.action')}</TableCell>
             </TableRow>

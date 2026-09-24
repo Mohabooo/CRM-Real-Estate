@@ -99,7 +99,8 @@
     "listPrice": "List price",
     "action": "Action",
     "empty": "No units match these filters.",
-    "loadFailed": "The inventory could not be loaded."
+    "loadFailed": "The inventory could not be loaded.",
+    "listPriceWithCurrency": "List price (EGP)"
   },
   "unitStatus": {
     "available": "Available",
@@ -137,7 +138,7 @@
     "minutesLeft": "{{count}} minutes left",
     "place": "Place hold",
     "placeTitle": "Place a hold on unit {{code}}",
-    "placed": "Unit {{code}} is now held.",
+    "placed": "Unit {{code}} is held, pending confirmation.",
     "placeFailed": "The hold could not be placed.",
     "party": "Held for",
     "partyHint": "A hold is for one customer or one lead.",
@@ -155,6 +156,9 @@
     "reasonRequired": "Required.",
     "reasonOptional": "Optional.",
     "loadFailed": "Your holds could not be loaded.",
-    "actionFailed": "That did not work. Please try again."
+    "actionFailed": "That did not work. Please try again.",
+    "confirm": "Confirm",
+    "confirmHint": "Confirming takes the unit off the market.",
+    "confirmDenied": "Only a manager or operations can confirm a hold."
   }
 }

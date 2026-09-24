@@ -30,6 +30,7 @@ import {
   type ReservationStatus,
 } from '@/api/reservations';
 import { useLanguage } from '@/app/LanguageContext';
+import { useAuth } from '@/features/auth/AuthContext';
 import { formatAmount } from '@/format/money';
 import { formatDate, timeRemaining } from '@/format/time';
 
@@ -54,10 +55,22 @@ type Pending = { kind: 'release'; hold: Reservation } | { kind: 'extend'; hold: 
  * Releasing requires a reason and the form enforces it, because the API does and because a
  * unit going back on the market without an explanation is the kind of thing somebody has to
  * reconstruct from memory three weeks later.
+ *
+ * Confirming is here because placing a hold does NOT take the unit off the market — E4-S1
+ * makes that the confirmation's job, and a pending hold leaves the unit showing as available
+ * in inventory. C2 still stops anybody else holding it, so nothing is lost in the gap; but
+ * without a confirm action the unit could never become 'reserved' at all from the interface.
  */
 export function HoldsPage() {
   const { t } = useTranslation();
   const { language } = useLanguage();
+  const { me } = useAuth();
+
+  // Confirming claims the unit, so the API restricts it to the roles that may take a unit
+  // off the market. Disabling it here says so before the request rather than after.
+  const mayConfirm =
+    me !== null &&
+    ['BRANCH_MANAGER', 'TEAM_LEADER', 'OPERATIONS', 'OWNER', 'PLATFORM_ADMIN'].includes(me.role);
 
   const [holds, setHolds] = useState<Reservation[]>([]);
   const [units, setUnits] = useState<Map<string, Unit>>(new Map());
@@ -110,6 +123,21 @@ export function HoldsPage() {
       const suggested = new Date(next.hold.expiresAt);
       suggested.setDate(suggested.getDate() + 7);
       setNewExpiry(suggested.toISOString().slice(0, 16));
+    }
+  }
+
+  async function confirmHold(id: string) {
+    setWorking(true);
+    setError(null);
+    try {
+      await reservationsApi.confirm(id);
+      await load();
+    } catch (cause) {
+      // A 409 here means somebody else took the unit between the hold being placed and it
+      // being confirmed. The server names the unit's current status; it is shown as-is.
+      setError(isApiError(cause) ? cause.message : t('holds.actionFailed'));
+    } finally {
+      setWorking(false);
     }
   }
 
@@ -214,6 +242,22 @@ export function HoldsPage() {
                     </TableCell>
                     <TableCell sx={{ textAlign: 'end' }}>
                       <Stack direction="row" spacing={1} justifyContent="flex-end">
+                        {hold.status === 'pending' ? (
+                          <Tooltip
+                            title={mayConfirm ? t('holds.confirmHint') : t('holds.confirmDenied')}
+                          >
+                            <span>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                disabled={!mayConfirm || working}
+                                onClick={() => void confirmHold(hold.id)}
+                              >
+                                {t('holds.confirm')}
+                              </Button>
+                            </span>
+                          </Tooltip>
+                        ) : null}
                         <Button
                           size="small"
                           disabled={!active}

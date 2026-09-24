@@ -99,7 +99,8 @@
     "listPrice": "سعر القائمة",
     "action": "إجراء",
     "empty": "لا توجد وحدات مطابقة لهذه المرشحات.",
-    "loadFailed": "تعذّر تحميل الوحدات."
+    "loadFailed": "تعذّر تحميل الوحدات.",
+    "listPriceWithCurrency": "سعر القائمة (ج.م)"
   },
   "unitStatus": {
     "available": "متاحة",
@@ -137,7 +138,7 @@
     "minutesLeft": "متبقٍ {{count}} دقيقة",
     "place": "حجز",
     "placeTitle": "حجز الوحدة {{code}}",
-    "placed": "تم حجز الوحدة {{code}}.",
+    "placed": "تم حجز الوحدة {{code}} بانتظار التأكيد.",
     "placeFailed": "تعذّر إتمام الحجز.",
     "party": "الحجز لصالح",
     "partyHint": "الحجز يكون لعميل واحد أو عميل محتمل واحد.",
@@ -155,6 +156,9 @@
     "reasonRequired": "مطلوب.",
     "reasonOptional": "اختياري.",
     "loadFailed": "تعذّر تحميل حجوزاتك.",
-    "actionFailed": "لم يتم تنفيذ الإجراء. حاول مرة أخرى."
+    "actionFailed": "لم يتم تنفيذ الإجراء. حاول مرة أخرى.",
+    "confirm": "تأكيد",
+    "confirmHint": "التأكيد يسحب الوحدة من السوق.",
+    "confirmDenied": "التأكيد متاح للمدير أو العمليات فقط."
   }
 }
