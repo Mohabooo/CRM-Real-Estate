@@ -32,9 +32,21 @@ import java.util.Set;
  *
  * <p>Deliberately a check on {@code Origin} rather than a synchroniser token. A token would
  * mean a second credential to mint, store, rotate and hand to the frontend on every page
- * load, to defend against something the origin already identifies. If the API later serves a
- * frontend on a different host, that host goes in {@code crm.security.allowed-origins} and
- * nothing else changes.
+ * load, to defend against something the origin already identifies.
+ *
+ * <p><b>A proxy in front means the origins differ.</b> The same-origin comparison below uses
+ * the request's own scheme, host and port, and a proxy changes those. The development server
+ * rewrites {@code Host} when it forwards {@code /api} to port 8080, but the browser still
+ * sends {@code Origin: http://localhost:5173} — so the two do not match and every write is
+ * refused. A reverse proxy terminating TLS does the same thing: the browser's origin is
+ * {@code https://app.example.com} while the request arrives as plain HTTP on an internal
+ * port. In both cases the answer is to name the browser's origin in
+ * {@code crm.security.allowed-origins}, which the local profile does.
+ *
+ * <p>The alternative is {@code server.forward-headers-strategy}, which makes this server's
+ * idea of its own scheme and host follow {@code X-Forwarded-*} headers — sent by anything
+ * that can reach it, unless the proxy is careful to strip them. Naming the origin is the
+ * smaller thing to get right, so that is what this expects.
  *
  * <p>Safe methods pass untouched, and so does a request with no {@code Origin} at all: a
  * server-to-server call, a {@code curl}, an integration test. Cross-site forgery is a browser

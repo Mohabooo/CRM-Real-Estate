@@ -85,9 +85,18 @@ logging:
 crm:
   security:
     # Origins allowed to make state-changing requests, beyond this server's own. Empty is
-    # correct for the ordinary deployment where the frontend is served from the same origin
-    # as the API — including the development proxy, which exists to produce exactly that.
-    # List a frontend host here only if it genuinely sits somewhere else.
+    # correct only when the browser's address bar and this server share an origin.
+    #
+    # A proxy in front does NOT produce that. The development proxy rewrites Host so the
+    # request reaches :8080, but the browser still sends Origin: http://localhost:5173 —
+    # different port, different origin. The same applies to any reverse proxy that
+    # terminates TLS: the browser's origin is https://app.example.com and the request
+    # arrives as http on some internal port.
+    #
+    # So list the origin the BROWSER uses. The alternative is to trust X-Forwarded-* by
+    # setting server.forward-headers-strategy, which makes this server's idea of its own
+    # scheme and host depend on headers anything that can reach it may send. Naming the
+    # origin is the smaller thing to get right.
     allowed-origins: ${CRM_ALLOWED_ORIGINS:}
 
     session:

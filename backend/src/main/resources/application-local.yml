@@ -23,6 +23,13 @@ logging:
 
 crm:
   security:
+    # The Vite dev server. It proxies /api to :8080, which rewrites Host but not Origin, so
+    # the browser's origin stays :5173 and the origin check would otherwise refuse every
+    # sign-in with "This request did not come from an accepted origin".
+    #
+    # Both spellings, because a browser sent to 127.0.0.1 reports that rather than localhost.
+    allowed-origins: ${CRM_ALLOWED_ORIGINS:http://localhost:5173,http://127.0.0.1:5173}
+
     # No default, deliberately. A committed development key is the one that ends up in
     # production, so an unset variable fails loudly the first time an encrypted field is
     # written or read, rather than quietly protecting nothing.

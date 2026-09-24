@@ -106,6 +106,34 @@ class OriginCheckFilterTest {
     }
 
     @Test
+    @DisplayName("lets the development proxy's origin through when it is configured")
+    void the_dev_proxy_origin_passes_when_configured() throws Exception {
+        // The exact shape that broke: the browser is on :5173, the dev server forwards /api
+        // to :8080 rewriting Host but not Origin, so the request arrives on 8080 carrying an
+        // Origin of 5173. Without the configured entry this is a 403 on every sign-in, and
+        // the message says only that the origin was not accepted.
+        OriginCheckFilter configured = new OriginCheckFilter(
+                List.of("http://localhost:5173"), objectMapper());
+
+        MockHttpServletRequest request = request("POST", "http://localhost:5173", 8080);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+        configured.doFilter(request, response, new MockFilterChain());
+
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    @DisplayName("still refuses that same origin when it is NOT configured")
+    void the_dev_proxy_origin_is_refused_when_not_configured() throws Exception {
+        MockHttpServletResponse response = run("POST", "http://localhost:5173", 8080);
+
+        assertThat(response.getStatus())
+                .as("a different port is a different origin; being convenient is not a reason "
+                        + "to let one through unconfigured")
+                .isEqualTo(403);
+    }
+
+    @Test
     @DisplayName("lets a configured front-end origin through")
     void configured_origins_pass() throws Exception {
         OriginCheckFilter configured = new OriginCheckFilter(
