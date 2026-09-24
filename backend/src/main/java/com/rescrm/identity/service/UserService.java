@@ -31,13 +31,16 @@ public class UserService {
     private final BranchRepository branches;
     private final AuthorizationService authorization;
     private final AuditWriter audit;
+    private final AuthenticationService.TenantScopedAuthentication authentication;
 
     public UserService(UserRepository users, BranchRepository branches,
-                       AuthorizationService authorization, AuditWriter audit) {
+                       AuthorizationService authorization, AuditWriter audit,
+                       AuthenticationService.TenantScopedAuthentication authentication) {
         this.users = users;
         this.branches = branches;
         this.authorization = authorization;
         this.audit = audit;
+        this.authentication = authentication;
     }
 
     /**
@@ -79,8 +82,17 @@ public class UserService {
         user.deactivate();
         user.recordActor(SecurityContext.require().userId(), false);
         User saved = users.save(user);
+
+        // In the same transaction as the deactivation, not as an afterthought. E1-S3 asks
+        // for a user to be deactivated; a deactivated user still signed in on three devices
+        // has not been. This is the difference between a session and a self-contained token,
+        // and the reason doc 28 section 6's first option was the one built.
+        int endedSessions = authentication.revokeAllForUser(
+                tenantId, saved.id(), "User deactivated");
+
         audit.record(AuditAction.USER_DEACTIVATED, "User", saved.id(),
-                Map.of("active", true), Map.of("active", false), reason);
+                Map.of("active", true),
+                Map.of("active", false, "sessionsEnded", endedSessions), reason);
         return saved;
     }
 

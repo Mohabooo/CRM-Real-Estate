@@ -13,6 +13,7 @@ import com.rescrm.platform.security.AuthorizationService;
 import com.rescrm.platform.security.PasswordHasher;
 import com.rescrm.platform.security.Role;
 import com.rescrm.platform.security.SecurityContext;
+import com.rescrm.platform.tenancy.PlatformAuthenticationLookup;
 import com.rescrm.platform.tenancy.TenantContext;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -43,11 +44,14 @@ public class InvitationService {
     private final AuditWriter audit;
     private final Clock clock;
     private final Duration validity;
+    private final PlatformAuthenticationLookup lookup;
+    private final TenantScopedAcceptance scoped;
 
     public InvitationService(InvitationRepository invitations, UserRepository users,
                              UserService userService, PasswordHasher passwordHasher,
                              AuthorizationService authorization, AuditWriter audit, Clock clock,
-                             @Value("${crm.identity.invitation-validity:P7D}") Duration validity) {
+                             @Value("${crm.identity.invitation-validity:P7D}") Duration validity,
+                             PlatformAuthenticationLookup lookup, TenantScopedAcceptance scoped) {
         this.invitations = invitations;
         this.users = users;
         this.userService = userService;
@@ -56,6 +60,8 @@ public class InvitationService {
         this.audit = audit;
         this.clock = clock;
         this.validity = validity;
+        this.lookup = lookup;
+        this.scoped = scoped;
     }
 
     /** The invitation plus the one-time token, which exists only in this return value. */
@@ -109,20 +115,75 @@ public class InvitationService {
     /**
      * Accepts an invitation and creates the user it was issued for.
      *
-     * <p>Runs with no authenticated caller. The token is looked up by hash — the only
-     * deliberately unscoped query in this module — and the tenant it names becomes the context
-     * for everything that follows, so the new row cannot land anywhere else.
+     * <p>Runs with no authenticated caller. The token is looked up by hash through
+     * {@link PlatformAuthenticationLookup}, which is the only way that query can see anything:
+     * {@code invitations} is behind row-level security like every other table, and an
+     * unscoped read with no tenant established matches nothing at all. The tenant the token
+     * names then becomes the context for everything that follows, so the new row cannot land
+     * anywhere else.
      *
      * <p>The response is identical for an unknown, expired and already-accepted token: all
      * three answer "not found". Distinguishing them would let someone with a list of guesses
      * learn which ones were real.
      */
-    @Transactional
     public User accept(String rawToken, String name, String rawPassword) {
-        Invitation invitation = invitations.findByTokenHash(InvitationTokens.hash(rawToken))
+        PlatformAuthenticationLookup.InvitationIdentity identity = lookup
+                .pendingInvitationByTokenHash(InvitationTokens.hash(rawToken))
                 .orElseThrow(() -> ApiException.notFound("Invitation"));
 
-        return TenantContext.callAs(invitation.tenantId(), () -> {
+        // The tenant is established BEFORE the transactional bean is entered, because
+        // TenantAwareDataSource stamps a connection when the connection is taken and Spring
+        // takes one when the transaction begins. Setting it inside a @Transactional method
+        // is too late: the connection already carries the empty binding, and every policy
+        // treats that as matching nothing. See TenantProvisioningService for the same note.
+        return TenantContext.callAs(identity.tenantId(),
+                () -> scoped.accept(identity, name, rawPassword));
+    }
+
+    private static String normalize(String email) {
+        try {
+            return User.normalizeEmail(email);
+        } catch (IllegalArgumentException e) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, e.getMessage());
+        }
+    }
+
+    /**
+     * The write half of acceptance, once the tenant context exists.
+     *
+     * <p>A separate bean so Spring's transactional proxy applies, and so the transaction
+     * begins after the tenant is established rather than before it.
+     */
+    @Service
+    public static class TenantScopedAcceptance {
+
+        private final InvitationRepository invitations;
+        private final UserRepository users;
+        private final PasswordHasher passwordHasher;
+        private final AuditWriter audit;
+        private final Clock clock;
+
+        public TenantScopedAcceptance(InvitationRepository invitations, UserRepository users,
+                                      PasswordHasher passwordHasher, AuditWriter audit,
+                                      Clock clock) {
+            this.invitations = invitations;
+            this.users = users;
+            this.passwordHasher = passwordHasher;
+            this.audit = audit;
+            this.clock = clock;
+        }
+
+        @Transactional
+        public User accept(PlatformAuthenticationLookup.InvitationIdentity identity,
+                           String name, String rawPassword) {
+            Invitation invitation = invitations
+                    .findByTenantIdAndId(identity.tenantId(), identity.invitationId())
+                    .orElseThrow(() -> ApiException.notFound("Invitation"));
+
+            // Re-checked here even though the lookup policy already hides anything but a
+            // pending, unexpired invitation. The policy compares against the database clock;
+            // this compares against the application's, which tests control. Neither is
+            // redundant, and disagreeing is better than silently accepting.
             if (invitation.statusAt(clock.instant()) != InvitationStatus.PENDING) {
                 throw ApiException.notFound("Invitation");
             }
@@ -152,14 +213,6 @@ public class InvitationService {
                     Map.of("accepted", true, "userId", savedUser.id().toString()), null);
 
             return savedUser;
-        });
-    }
-
-    private static String normalize(String email) {
-        try {
-            return User.normalizeEmail(email);
-        } catch (IllegalArgumentException e) {
-            throw new ApiException(ErrorCode.VALIDATION_FAILED, e.getMessage());
         }
     }
 }
