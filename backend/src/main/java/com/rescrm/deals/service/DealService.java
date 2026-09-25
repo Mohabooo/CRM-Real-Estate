@@ -645,22 +645,33 @@ public class DealService {
      * Writes the draft, turning C1 into an answer rather than a stack trace.
      *
      * <p>The partial unique index is what actually prevents two live deals on one unit; this
-     * only decides what the loser is told. A read-then-insert would be the bug — the gap
-     * between the two is exactly where the second draft gets in.
+     * only decides what the loser is told. The read below decides nothing and is not a
+     * check — C1 is the check. It exists so the common refusal can name the deal that
+     * already has the unit, which is what an agent needs in order to go and ask about it.
+     *
+     * <p>The read has to come BEFORE the insert, and that is not a style preference. A
+     * failed insert aborts the PostgreSQL transaction, and every command after it is
+     * rejected with "current transaction is aborted" until the transaction ends — so
+     * looking up the winner inside the catch block, which is the obvious thing to reach
+     * for, turns a useful 409 into a 500. Between this read and the insert another draft
+     * can still appear; then the index refuses ours and the caller is told the unit is
+     * taken without a name. Correct, and rarer than the case this serves.
      */
     private Deal saveExclusive(Deal deal, UUID unitId) {
-        try {
-            return deals.saveAndFlush(deal);
-        } catch (DataIntegrityViolationException alreadyLive) {
-            // Read only now, and only so the refusal can name the deal that won.
-            Optional<Deal> winner = deals.findLiveForUnit(deal.tenantId(), unitId);
+        deals.findLiveForUnit(deal.tenantId(), unitId).ifPresent(existing -> {
             Map<String, Object> details = new LinkedHashMap<>();
             details.put("unitId", unitId.toString());
-            winner.ifPresent(existing -> {
-                details.put("dealId", existing.id().toString());
-                details.put("dealStatus", existing.status().code());
-            });
+            details.put("dealId", existing.id().toString());
+            details.put("dealStatus", existing.status().code());
             throw ApiException.conflict("That unit already has a live deal on it", details);
+        });
+
+        try {
+            return deals.saveAndFlush(deal);
+        } catch (DataIntegrityViolationException tookItFirst) {
+            throw ApiException.conflict(
+                    "That unit was taken while this deal was being drafted",
+                    Map.of("unitId", unitId.toString()));
         }
     }
 
