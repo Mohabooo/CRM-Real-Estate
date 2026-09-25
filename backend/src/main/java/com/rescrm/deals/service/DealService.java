@@ -189,9 +189,18 @@ public class DealService {
         discount.recordActor(SecurityContext.require().userId());
         discounts.save(discount);
 
+        // Read BEFORE restating, because restateTotalDiscount mutates this very object and
+        // returns it. Taking the "before" figures afterwards recorded the new total twice
+        // and produced a trail entry showing a price that had not changed — which is worse
+        // than no entry, because AUD-005 asks the trail to answer what a deal was worth
+        // before a concession was granted.
+        Money previousDiscount = deal.totalDiscount();
+        Money previousNet = deal.netValue();
+
         Deal saved = restateTotalDiscount(tenantId, deal);
         audit.record(AuditAction.DEAL_DISCOUNT_ADDED, "Deal", saved.id(),
-                Map.of("totalDiscount", deal.totalDiscount().toPlainString()),
+                Map.of("totalDiscount", previousDiscount.toPlainString(),
+                        "netValue", previousNet.toPlainString()),
                 Map.of("kind", discount.kind().code(),
                         "amount", discount.amount().toPlainString(),
                         "totalDiscount", saved.totalDiscount().toPlainString(),
@@ -492,10 +501,17 @@ public class DealService {
         deal.recordActor(SecurityContext.require().userId(), false);
         Deal saved = deals.save(deal);
 
+        // Doc 18 section 5's "active → closed", in the same transaction. A completed deal
+        // whose plan stayed active would leave a live schedule of obligations against a
+        // sale that had finished — which nothing in Epic 5 reads, and Epic 7's collection
+        // queries would have read as money still owed.
+        boolean planClosed = plans.closeFor(deal).isPresent();
+
         audit.record(AuditAction.DEAL_COMPLETED, "Deal", saved.id(),
                 Map.of("status", DealStatus.ACTIVE.code()),
                 Map.of("status", saved.status().code(),
-                        "downPaymentConfirmed", saved.isDownPaymentConfirmedByDeveloper()), null);
+                        "downPaymentConfirmed", saved.isDownPaymentConfirmedByDeveloper(),
+                        "planClosed", planClosed), null);
         return saved;
     }
 
