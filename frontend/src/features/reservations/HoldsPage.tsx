@@ -43,7 +43,18 @@ const STATUS_COLOURS: Record<ReservationStatus, 'warning' | 'success' | 'default
   cancelled: 'default',
 };
 
-type Pending = { kind: 'release'; hold: Reservation } | { kind: 'extend'; hold: Reservation };
+/**
+ * Doc 18 section 3 gives a live hold three ways out, and which two are offered depends on
+ * where it is. A pending hold is CANCELLED — it withheld nothing, so there is nothing to
+ * give back and no reason required. A confirmed hold is RELEASED — the unit returns to the
+ * market and a reason is required. There is no pending -> released row in the table, and
+ * offering it anyway is what produced "a reservation cannot move from pending to released"
+ * on a button that could never have worked.
+ */
+type Pending =
+  | { kind: 'release'; hold: Reservation }
+  | { kind: 'cancel'; hold: Reservation }
+  | { kind: 'extend'; hold: Reservation };
 
 /**
  * The holds this caller can see, and what can still be done to them.
@@ -133,8 +144,11 @@ export function HoldsPage() {
       await reservationsApi.confirm(id);
       await load();
     } catch (cause) {
-      // A 409 here means somebody else took the unit between the hold being placed and it
-      // being confirmed. The server names the unit's current status; it is shown as-is.
+      // A 409 here means the unit was taken between the hold being placed and it being
+      // confirmed — a pending hold withholds nothing, so that window is real. The server's
+      // message now names what the unit became; it used to carry that only in a details
+      // map nothing displayed, which is why this read as "unavailable" beside a unit the
+      // agent could plainly see.
       setError(isApiError(cause) ? cause.message : t('holds.actionFailed'));
     } finally {
       setWorking(false);
@@ -150,6 +164,11 @@ export function HoldsPage() {
     try {
       if (pending.kind === 'release') {
         await reservationsApi.release(pending.hold.id, reason.trim());
+      } else if (pending.kind === 'cancel') {
+        await reservationsApi.cancel(
+          pending.hold.id,
+          reason.trim() === '' ? undefined : reason.trim(),
+        );
       } else {
         await reservationsApi.extend(
           pending.hold.id,
@@ -169,7 +188,9 @@ export function HoldsPage() {
   const canConfirm =
     pending?.kind === 'release'
       ? reason.trim() !== ''
-      : newExpiry !== '' && !Number.isNaN(new Date(newExpiry).getTime());
+      : pending?.kind === 'cancel'
+        ? true
+        : newExpiry !== '' && !Number.isNaN(new Date(newExpiry).getTime());
 
   return (
     <Box>
@@ -265,14 +286,26 @@ export function HoldsPage() {
                         >
                           {t('holds.extend')}
                         </Button>
-                        <Button
-                          size="small"
-                          color="warning"
-                          disabled={!active}
-                          onClick={() => begin({ kind: 'release', hold })}
-                        >
-                          {t('holds.release')}
-                        </Button>
+                        {hold.status === 'confirmed' ? (
+                          <Button
+                            size="small"
+                            color="warning"
+                            disabled={!active}
+                            onClick={() => begin({ kind: 'release', hold })}
+                          >
+                            {t('holds.release')}
+                          </Button>
+                        ) : null}
+                        {hold.status === 'pending' ? (
+                          <Button
+                            size="small"
+                            color="warning"
+                            disabled={!active}
+                            onClick={() => begin({ kind: 'cancel', hold })}
+                          >
+                            {t('holds.cancelHold')}
+                          </Button>
+                        ) : null}
                       </Stack>
                     </TableCell>
                   </TableRow>
@@ -285,12 +318,19 @@ export function HoldsPage() {
 
       <Dialog open={pending !== null} onClose={() => setPending(null)} fullWidth maxWidth="sm">
         <DialogTitle>
-          {pending?.kind === 'release' ? t('holds.releaseTitle') : t('holds.extendTitle')}
+          {pending?.kind === 'release'
+            ? t('holds.releaseTitle')
+            : pending?.kind === 'cancel'
+              ? t('holds.cancelTitle')
+              : t('holds.extendTitle')}
         </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
             {actionError ? <Alert severity="error">{actionError}</Alert> : null}
 
+            {pending?.kind === 'cancel' ? (
+              <DialogContentText>{t('holds.cancelExplain')}</DialogContentText>
+            ) : null}
             {pending?.kind === 'release' ? (
               <DialogContentText>{t('holds.releaseExplain')}</DialogContentText>
             ) : (
@@ -322,11 +362,15 @@ export function HoldsPage() {
           <Button onClick={() => setPending(null)}>{t('common.cancel')}</Button>
           <Button
             variant="contained"
-            color={pending?.kind === 'release' ? 'warning' : 'primary'}
+            color={pending?.kind === 'extend' ? 'primary' : 'warning'}
             onClick={() => void confirmAction()}
             disabled={working || !canConfirm}
           >
-            {pending?.kind === 'release' ? t('holds.release') : t('holds.extend')}
+            {pending?.kind === 'release'
+              ? t('holds.release')
+              : pending?.kind === 'cancel'
+                ? t('holds.cancelHold')
+                : t('holds.extend')}
           </Button>
         </DialogActions>
       </Dialog>

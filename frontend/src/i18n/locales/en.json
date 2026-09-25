@@ -161,7 +161,10 @@
     "actionFailed": "That did not work. Please try again.",
     "confirm": "Confirm",
     "confirmHint": "Confirming takes the unit off the market.",
-    "confirmDenied": "Only a manager or operations can confirm a hold."
+    "confirmDenied": "Only a manager or operations can confirm a hold.",
+    "cancelHold": "Cancel hold",
+    "cancelTitle": "Cancel this hold",
+    "cancelExplain": "This hold was never confirmed, so no unit is being withheld and nothing returns to the market. A reason is optional and will be recorded against your name."
   },
   "dealStatus": {
     "draft": "Draft",

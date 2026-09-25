@@ -59,9 +59,22 @@ export const reservationsApi = {
 
   confirm: (id: string) => apiClient.post<Reservation>(`/api/v1/reservations/${id}/confirm`),
 
-  /** A reason is required by the API, and rightly: a released unit needs an explanation. */
+  /**
+   * Doc 18 section 3: confirmed -> released only. A reason is required by the API, and
+   * rightly — a released unit goes back on the market and somebody will ask why.
+   */
   release: (id: string, reason: string) =>
     apiClient.post<Reservation>(`/api/v1/reservations/${id}/release`, { reason }),
+
+  /**
+   * Doc 18 section 3: pending -> cancelled, the close-out for a hold that never withheld
+   * anything. Distinct from release and not interchangeable with it: the table has no
+   * pending -> released row, because there is no unit to give back.
+   *
+   * The reason is optional, matching the table's empty precondition column.
+   */
+  cancel: (id: string, reason?: string) =>
+    apiClient.post<Reservation>(`/api/v1/reservations/${id}/cancel`, { reason }),
 
   extend: (id: string, expiresAt: string, reason?: string) =>
     apiClient.post<Reservation>(`/api/v1/reservations/${id}/extend`, { expiresAt, reason }),
