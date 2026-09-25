@@ -9,6 +9,7 @@ import com.rescrm.deals.repository.CustomerPaymentPlanRepository;
 import com.rescrm.deals.repository.DealRepository;
 import com.rescrm.deals.repository.InstallmentRepository;
 import com.rescrm.deals.repository.PaymentPlanTemplateRepository;
+import com.rescrm.finance.schedule.DownPayment;
 import com.rescrm.finance.schedule.InstallmentKind;
 import com.rescrm.finance.schedule.PaymentSchedule;
 import com.rescrm.finance.schedule.PaymentScheduleGenerator;
@@ -21,6 +22,7 @@ import com.rescrm.platform.audit.AuditAction;
 import com.rescrm.platform.audit.AuditWriter;
 import com.rescrm.platform.errors.ApiException;
 import com.rescrm.platform.errors.ErrorCode;
+import com.rescrm.platform.money.CurrencyCode;
 import com.rescrm.platform.money.Money;
 import com.rescrm.platform.security.AuthorizationService;
 import com.rescrm.platform.security.Role;
@@ -227,14 +229,32 @@ public class PaymentPlanService {
                 : create(deal, template, schedule);
     }
 
-    /** The schedule on a deal: the live plan if there is one, otherwise the draft. */
+    /**
+     * The schedule that governs this deal now, whatever state it is in.
+     *
+     * <p>Live plan first, then a draft, then the most recent of whatever else exists. That
+     * last fallback is not defensive tidiness: closing a plan when its deal completes moved
+     * it out of both of the first two, so without it every completed deal reported no
+     * schedule at all and its screen said one had never been generated. The rows are the
+     * record of what the customer agreed to pay, and they do not stop mattering because the
+     * deal finished.
+     *
+     * <p>Ordered by version, so a superseded plan never shadows the one that replaced it.
+     */
     @Transactional(readOnly = true)
     public Optional<PlanWithSchedule> planFor(UUID dealId) {
         UUID tenantId = TenantContext.require();
         return plans.findActiveForDeal(tenantId, dealId)
                 .or(() -> plans.findDraftForDeal(tenantId, dealId))
+                .or(() -> mostRecentPlan(tenantId, dealId))
                 .map(plan -> new PlanWithSchedule(plan,
                         installments.findAllForPlan(tenantId, plan.id())));
+    }
+
+    /** The highest-versioned plan on a deal, for when none is live or being drafted. */
+    private Optional<CustomerPaymentPlan> mostRecentPlan(UUID tenantId, UUID dealId) {
+        List<CustomerPaymentPlan> all = plans.findAllForDeal(tenantId, dealId);
+        return all.isEmpty() ? Optional.empty() : Optional.of(all.get(all.size() - 1));
     }
 
     // ------------------------------------------------------------------ activation
@@ -531,15 +551,33 @@ public class PaymentPlanService {
                 Role.OPERATIONS, Role.OWNER, Role.PLATFORM_ADMIN);
     }
 
+    /**
+     * What a template said, for the trail.
+     *
+     * <p>Includes the down payment's VALUE and the market label, not only the kind. An
+     * entry recording that a template's down payment is "percent" cannot answer whether it
+     * went from ten per cent to twelve, which is the only question anybody asks of an
+     * audited change to a price shape.
+     */
     private static Map<String, Object> describe(PaymentPlanTemplate template) {
         Map<String, Object> described = new LinkedHashMap<>();
         described.put("name", template.name());
+        described.put("shorthandLabel", String.valueOf(template.shorthandLabel()));
         described.put("downPaymentType", template.downPaymentType().code());
+        described.put("downPaymentValue", statedDownPayment(template));
         described.put("deliveryPercent", template.deliveryPaymentPercent().toString());
         described.put("installmentCount", template.installmentCount());
         described.put("frequency", template.frequency().name().toLowerCase(Locale.ROOT));
         described.put("active", template.isActive());
         return described;
+    }
+
+    /** The rate for a percentage, the amount for a fixed sum — as the template states it. */
+    private static String statedDownPayment(PaymentPlanTemplate template) {
+        return switch (template.downPaymentIn(CurrencyCode.EGP)) {
+            case DownPayment.OfPercent percent -> percent.percentage().toString();
+            case DownPayment.OfAmount fixed -> fixed.amount().toPlainString();
+        };
     }
 
     private static Map<String, Object> describe(Deal deal, CustomerPaymentPlan plan,
