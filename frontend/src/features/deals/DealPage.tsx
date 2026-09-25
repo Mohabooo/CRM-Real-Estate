@@ -61,6 +61,7 @@ export function DealPage() {
   const [deal, setDeal] = useState<Deal | null>(null);
   const [unit, setUnit] = useState<Unit | null>(null);
   const [templates, setTemplates] = useState<PaymentPlanTemplate[]>([]);
+  const [templatesFailed, setTemplatesFailed] = useState(false);
   const [templateId, setTemplateId] = useState('');
 
   const [discountPercent, setDiscountPercent] = useState('');
@@ -86,6 +87,11 @@ export function DealPage() {
         dealsApi.offeredTemplates(id),
         inventoryApi.unit(loaded.unitId),
       ]);
+      // Distinguished, because "none are offered" and "we could not ask" look identical on
+      // screen and mean entirely different things: the first is a fact about the tenant's
+      // setup, the second is a fault. Reporting the fault as the fact sends somebody off to
+      // configure templates that already exist.
+      setTemplatesFailed(offered.status === 'rejected');
       if (offered.status === 'fulfilled') {
         setTemplates(offered.value);
       }
@@ -357,7 +363,14 @@ export function DealPage() {
               value={templateId}
               onChange={(event) => setTemplateId(event.target.value)}
               sx={{ minWidth: 340 }}
-              helperText={templates.length === 0 ? t('deals.plan.noTemplates') : ' '}
+              error={templatesFailed}
+              helperText={
+                templatesFailed
+                  ? t('deals.plan.templatesUnavailable')
+                  : templates.length === 0
+                    ? t('deals.plan.noTemplates')
+                    : ' '
+              }
             >
               {templates.map((template) => (
                 <MenuItem key={template.id} value={template.id}>
