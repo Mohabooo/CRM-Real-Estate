@@ -1,5 +1,8 @@
 package com.rescrm.integration;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.rescrm.inventory.domain.ProjectStatus;
+import com.rescrm.finance.schedule.Frequency;
 import com.rescrm.platform.observability.CorrelationId;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -7,6 +10,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.test.web.servlet.MockMvc;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -22,6 +26,31 @@ class HealthAndErrorEnvelopeIT extends AbstractPostgresIT {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    /**
+     * The application's own mapper accepts the enum codes the application publishes.
+     *
+     * <p>Asserted through the real context rather than against a mapper a test built,
+     * because the failure this guards against is not a broken module — it is a working
+     * module that nothing registers. {@code CodedEnumConverterTest} proves the mechanism;
+     * this proves it is switched on, and the two together are what make
+     * {@code {"frequency":"quarterly"}} work on a real request.
+     */
+    @Test
+    @DisplayName("the application's mapper accepts the enum codes the API publishes")
+    void coded_enums_are_accepted_in_request_bodies() throws Exception {
+        assertThat(objectMapper.readValue("\"draft\"", ProjectStatus.class))
+                .isEqualTo(ProjectStatus.DRAFT);
+        assertThat(objectMapper.readValue("\"quarterly\"", Frequency.class))
+                .isEqualTo(Frequency.QUARTERLY);
+
+        // The Java name still works, so nothing written against the old behaviour breaks.
+        assertThat(objectMapper.readValue("\"DRAFT\"", ProjectStatus.class))
+                .isEqualTo(ProjectStatus.DRAFT);
+    }
 
     @Test
     @DisplayName("health reports UP with the database connected")

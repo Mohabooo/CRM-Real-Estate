@@ -82,7 +82,20 @@ class CodedEnumConverterTest {
     @DisplayName("in a request body")
     class InRequestBody {
 
-        private final ObjectMapper mapper = new ObjectMapper();
+        /**
+         * Built the way the application's is: with the module registered.
+         *
+         * <p>A bare {@code new ObjectMapper()} would be testing something the application
+         * never uses. This mirrors {@code MoneySerializationTest}, which registers
+         * {@code MoneyModule} for the same reason — and the module is taken from the
+         * configuration method that supplies it in production, so the two cannot drift.
+         *
+         * <p>That the application's own mapper really does carry it is asserted separately,
+         * through the real Spring context, in {@code HealthAndErrorEnvelopeIT}: a module
+         * that exists and is never registered is precisely the failure this pair is for.
+         */
+        private final ObjectMapper mapper =
+                new ObjectMapper().registerModule(new CodedEnumConverters().codedEnumModule());
 
         @Test
         @DisplayName("accepts the code, and the name")
