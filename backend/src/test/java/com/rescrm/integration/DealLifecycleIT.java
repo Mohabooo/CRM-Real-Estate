@@ -4,12 +4,14 @@ import com.rescrm.crm.service.CustomerService;
 import com.rescrm.deals.domain.Concession;
 import com.rescrm.deals.domain.Deal;
 import com.rescrm.deals.domain.DealStatus;
+import com.rescrm.deals.domain.Installment;
 import com.rescrm.deals.domain.PaymentPlanTemplate;
 import com.rescrm.deals.domain.PlanStatus;
 import com.rescrm.deals.service.DealService;
 import com.rescrm.deals.service.PaymentPlanService;
 import com.rescrm.deals.service.PlanWithSchedule;
 import com.rescrm.finance.schedule.DownPayment;
+import com.rescrm.finance.schedule.Frequency;
 import com.rescrm.finance.schedule.InstallmentKind;
 import com.rescrm.identity.service.TenantProvisioningService;
 import com.rescrm.inventory.domain.ProjectStatus;
@@ -427,6 +429,110 @@ class DealLifecycleIT extends AbstractPostgresIT {
         }
 
         @Test
+        @DisplayName("TPL-001 — editing a template leaves live schedules byte-identical")
+        void editing_a_template_does_not_reach_a_live_plan() {
+            Deal deal = draft();
+            PlanWithSchedule before = planService.applyTemplate(deal.id(), templateId);
+            List<String> rowsBefore = describe(before);
+
+            // A different shape entirely: half down, a third of the count, monthly instead
+            // of quarterly. If anything read the template again, every figure would move.
+            planService.updateTemplate(templateId, "Repriced", "50% down, 1 year monthly",
+                    new PaymentPlanTemplate.Shape(
+                            DownPayment.percent(Percentage.of("50")),
+                            Percentage.of("0"), 12, Frequency.MONTHLY, null));
+
+            PlanWithSchedule after = planService.planFor(deal.id()).orElseThrow();
+
+            // TPL-001 asks for byte-identical, so the comparison is every row's sequence,
+            // kind, date and amount — not just the total, which could coincide.
+            assertThat(describe(after))
+                    .as("a plan copied its terms; nothing reads the template again")
+                    .containsExactlyElementsOf(rowsBefore);
+            assertThat(after.plan().netValue()).isEqualTo(before.plan().netValue());
+            assertThat(after.plan().downPaymentAmount())
+                    .isEqualTo(before.plan().downPaymentAmount());
+            assertThat(after.plan().installmentCount())
+                    .isEqualTo(before.plan().installmentCount());
+            assertThat(after.plan().version())
+                    .as("and the plan was not regenerated behind the scenes")
+                    .isEqualTo(before.plan().version());
+        }
+
+        @Test
+        @DisplayName("TPL-005 — two deals from one template are independent instances")
+        void two_deals_from_one_template_are_independent() {
+            Deal first = draft();
+            planService.applyTemplate(first.id(), templateId);
+
+            UUID secondUnit = unitService.create(projectId, null, "D-102", "apartment", null,
+                    null, null, egp("1500000.00")).id();
+            Deal second = dealService.draft(secondUnit, customerId, null,
+                    CanonicalDeal.DEAL_DATE);
+            planService.applyTemplate(second.id(), templateId);
+
+            // Regenerating one must not touch the other. They share a template and nothing
+            // else; a shared mutable instance would show up here as a moved version number
+            // or a changed schedule.
+            List<String> secondBefore =
+                    describe(planService.planFor(second.id()).orElseThrow());
+            planService.applyTemplate(first.id(), templateId);
+
+            PlanWithSchedule secondAfter = planService.planFor(second.id()).orElseThrow();
+            assertThat(describe(secondAfter)).containsExactlyElementsOf(secondBefore);
+            assertThat(secondAfter.plan().version()).isEqualTo(1);
+            assertThat(planService.planFor(first.id()).orElseThrow().plan().version())
+                    .isEqualTo(2);
+
+            // Different net values, from the same template — the point of a template being
+            // a shape rather than a schedule.
+            assertThat(secondAfter.plan().netValue()).isEqualTo(egp("1500000.00"));
+            assertThat(secondAfter.expectedTotal()).isEqualTo(egp("1500000.00"));
+        }
+
+        @Test
+        @DisplayName("TPL-008 / C3 — a deal cannot end up with two active plans")
+        void one_active_plan_per_deal() {
+            Deal active = activateCanonicalDeal();
+            UUID livePlan = planService.planFor(active.id()).orElseThrow().plan().id();
+
+            // The route to a second active plan would be generating another and activating
+            // it. Both halves are refused: an active deal's schedule cannot be regenerated,
+            // and there is no second activation to make one live.
+            assertCode(() -> planService.applyTemplate(active.id(), templateId),
+                    ErrorCode.ILLEGAL_STATE_TRANSITION);
+            assertCode(() -> dealService.activate(active.id()),
+                    ErrorCode.ILLEGAL_STATE_TRANSITION);
+
+            assertThat(planService.planFor(active.id()).orElseThrow().plan().id())
+                    .isEqualTo(livePlan);
+        }
+
+        @Test
+        @DisplayName("R-PLAN-5 — a cash plan is one installment equal to the net value")
+        void cash_plan() {
+            UUID cashTemplate = planService.createTemplate(null, "Cash " + UUID.randomUUID(),
+                    "Paid in full on signing",
+                    new PaymentPlanTemplate.Shape(DownPayment.percent(Percentage.of("0")),
+                            Percentage.of("0"), 1, Frequency.MONTHLY, 0)).id();
+
+            Deal deal = draft();
+            PlanWithSchedule plan = planService.applyTemplate(deal.id(), cashTemplate);
+
+            List<Installment> paying = plan.installments().stream()
+                    .filter(row -> row.expectedAmount().isPositive())
+                    .toList();
+
+            // One row carries the money. The down-payment and delivery rows still exist and
+            // are zero, because a schedule whose shape changes with its values is one every
+            // reader has to special-case.
+            assertThat(paying).hasSize(1);
+            assertThat(paying.get(0).kind()).isEqualTo(InstallmentKind.INSTALLMENT);
+            assertThat(paying.get(0).expectedAmount()).isEqualTo(CanonicalDeal.LIST_PRICE);
+            assertThat(plan.expectedTotal()).isEqualTo(CanonicalDeal.LIST_PRICE);
+        }
+
+        @Test
         @DisplayName("TPL-002 — archiving a template leaves a generated schedule untouched")
         void archiving_does_not_reach_a_live_plan() {
             Deal deal = draft();
@@ -664,6 +770,37 @@ class DealLifecycleIT extends AbstractPostgresIT {
         }
 
         @Test
+        @DisplayName("doc 18 section 5 — completing the deal closes its plan")
+        void completion_closes_the_plan() {
+            Brokered brokered = brokeredFixture();
+            assertThat(planService.planFor(brokered.dealId()).orElseThrow().plan().status())
+                    .isEqualTo(PlanStatus.ACTIVE);
+
+            dealService.complete(brokered.dealId());
+
+            // A completed deal whose plan stayed active is a live schedule of obligations
+            // against a finished sale. Nothing in Epic 5 reads plan status, so this was
+            // invisible until it was looked for; Epic 7 would have read it as money owed.
+            assertThat(planService.planFor(brokered.dealId()).orElseThrow().plan().status())
+                    .isEqualTo(PlanStatus.CLOSED);
+        }
+
+        @Test
+        @DisplayName("and the installments it closed on are left exactly as they were")
+        void closing_does_not_touch_the_rows() {
+            Brokered brokered = brokeredFixture();
+            List<String> before =
+                    describe(planService.planFor(brokered.dealId()).orElseThrow());
+
+            dealService.complete(brokered.dealId());
+
+            // Closing is a statement about the plan, not about what was owed. Rewriting or
+            // voiding the rows would destroy the record of what the customer agreed to.
+            assertThat(describe(planService.planFor(brokered.dealId()).orElseThrow()))
+                    .containsExactlyElementsOf(before);
+        }
+
+        @Test
         @DisplayName("FIN-001d — the two models produce byte-identical schedules")
         void identical_schedules_across_models() {
             Deal own = draft();
@@ -718,6 +855,14 @@ class DealLifecycleIT extends AbstractPostgresIT {
 
     private Deal draft() {
         return dealService.draft(unitId, customerId, null, CanonicalDeal.DEAL_DATE);
+    }
+
+    /** Every field of every row, so an equality check cannot pass on a coincidental total. */
+    private static List<String> describe(PlanWithSchedule plan) {
+        return plan.installments().stream()
+                .map(row -> row.sequenceNo() + ":" + row.kind().code() + ":" + row.dueDate()
+                        + ":" + row.expectedAmount().toPlainString())
+                .toList();
     }
 
     /** A draft carrying the canonical 5% discount and schedule, activated. */
