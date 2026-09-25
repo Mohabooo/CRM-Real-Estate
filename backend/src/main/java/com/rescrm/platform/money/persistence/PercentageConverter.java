@@ -14,7 +14,8 @@ import java.math.BigDecimal;
 // Every field using this converter must also declare
 // columnDefinition = MoneyColumns.RATE: rate_percentage is a PostgreSQL DOMAIN, which JDBC
 // reports as Types.DISTINCT, so Hibernate's schema validation fails without it. See
-// MoneyColumns. No entity maps a rate column yet; the first one is Epic 8's commission rules.
+// MoneyColumns. The first entity to map a rate is Epic 5's payment_plan_templates
+// .delivery_payment_percent; Epic 8's commission rules will add more.
 public class PercentageConverter implements AttributeConverter<Percentage, BigDecimal> {
 
     @Override

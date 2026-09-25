@@ -45,7 +45,7 @@ CREATE TABLE deals (
     net_value                      money_amount NOT NULL,
 
     commercial_model               TEXT        NOT NULL,
-    currency                       CHAR(3)     NOT NULL DEFAULT 'EGP',
+    currency                       TEXT        NOT NULL DEFAULT 'EGP',
     status                         TEXT        NOT NULL DEFAULT 'draft',
 
     -- R-DISC-5: recorded when a discount above the tenant's threshold has been approved.
@@ -73,6 +73,11 @@ CREATE TABLE deals (
     CONSTRAINT chk_deals_commercial_model CHECK (
         commercial_model IN ('own_inventory', 'brokered_inventory')),
 
+    -- TEXT rather than CHAR(3), like every other code column in this schema. The check
+    -- below already pins the value exactly, so a fixed width buys nothing — and bpchar
+    -- carries PostgreSQL's blank-padding comparison semantics, which is a subtlety nobody
+    -- wants on a currency code (doc 17 N9: EGP only, until a second currency is a decision
+    -- somebody makes deliberately).
     CONSTRAINT chk_deals_currency CHECK (currency = 'EGP'),
 
     -- C4. net_value > 0 is R-DISC-4; a discount equal to the gross would make a deal worth
