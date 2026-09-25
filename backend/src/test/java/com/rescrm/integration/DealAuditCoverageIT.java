@@ -1,5 +1,7 @@
 package com.rescrm.integration;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.rescrm.crm.service.CustomerService;
 import com.rescrm.deals.domain.Concession;
 import com.rescrm.deals.domain.Deal;
@@ -292,10 +294,17 @@ class DealAuditCoverageIT extends AbstractPostgresIT {
             AuditEvent entry =
                     only(AuditAction.PAYMENT_PLAN_GENERATED, "CustomerPaymentPlan", planId);
             assertWellFormed(entry, "CustomerPaymentPlan", planId);
-            assertThat(entry.after())
-                    .contains(deal.id().toString())
-                    .contains(CanonicalDeal.DOWN_PAYMENT.toPlainString())
-                    .contains(CanonicalDeal.DELIVERY_PAYMENT.toPlainString());
+            assertThat(field(entry.after(), "dealId")).isEqualTo(deal.id().toString());
+
+            // The deal carries no discount here, so net is the undiscounted list price and
+            // the template's 10% and 5% come off that. Asserting the canonical discounted
+            // figures instead was this test's own mistake, not the audit's.
+            assertThat(field(entry.after(), "netValue"))
+                    .isEqualTo(CanonicalDeal.LIST_PRICE.toPlainString());
+            assertThat(field(entry.after(), "downPayment")).isEqualTo("300000.00");
+            assertThat(field(entry.after(), "delivery")).isEqualTo("150000.00");
+            assertThat(field(entry.after(), "scheduleTotal"))
+                    .isEqualTo(CanonicalDeal.LIST_PRICE.toPlainString());
         }
 
         @Test
@@ -308,8 +317,8 @@ class DealAuditCoverageIT extends AbstractPostgresIT {
             AuditEvent entry =
                     only(AuditAction.PAYMENT_PLAN_REGENERATED, "CustomerPaymentPlan", planId);
             assertWellFormed(entry, "CustomerPaymentPlan", planId);
-            assertThat(entry.before()).contains("\"version\":1");
-            assertThat(entry.after()).contains("\"version\":2");
+            assertThat(field(entry.before(), "version")).isEqualTo("1");
+            assertThat(field(entry.after(), "version")).isEqualTo("2");
         }
 
         @Test
@@ -357,15 +366,23 @@ class DealAuditCoverageIT extends AbstractPostgresIT {
             planService.updateTemplate(id, "Audited template", "12% down", shape());
             AuditEvent updated = only(AuditAction.PAYMENT_PLAN_TEMPLATE_UPDATED,
                     "PaymentPlanTemplate", id);
-            assertThat(updated.before()).contains("10% down");
+
+            // Both sides of what a person actually changed. The entry used to record the
+            // down payment's KIND and not its value, so it could not answer whether a
+            // template had gone from ten per cent to twelve — the only question anybody
+            // asks of an audited change to a price shape.
+            assertThat(field(updated.before(), "shorthandLabel")).isEqualTo("10% down");
+            assertThat(field(updated.after(), "shorthandLabel")).isEqualTo("12% down");
+            assertThat(field(updated.before(), "downPaymentValue")).isNotBlank();
+            assertThat(field(updated.after(), "downPaymentValue")).isNotBlank();
 
             planService.archiveTemplate(id);
-            assertThat(only(AuditAction.PAYMENT_PLAN_TEMPLATE_ARCHIVED,
-                    "PaymentPlanTemplate", id).after()).contains("false");
+            assertThat(field(only(AuditAction.PAYMENT_PLAN_TEMPLATE_ARCHIVED,
+                    "PaymentPlanTemplate", id).after(), "active")).isEqualTo("false");
 
             planService.restoreTemplate(id);
-            assertThat(only(AuditAction.PAYMENT_PLAN_TEMPLATE_RESTORED,
-                    "PaymentPlanTemplate", id).after()).contains("true");
+            assertThat(field(only(AuditAction.PAYMENT_PLAN_TEMPLATE_RESTORED,
+                    "PaymentPlanTemplate", id).after(), "active")).isEqualTo("true");
         }
     }
 
@@ -462,6 +479,27 @@ class DealAuditCoverageIT extends AbstractPostgresIT {
         assertThat(entry.after())
                 .as("a transition with nothing recorded about its result is a log line")
                 .isNotBlank();
+    }
+
+    /**
+     * One recorded field, read as a value rather than matched as a substring.
+     *
+     * <p>These columns are {@code jsonb}. PostgreSQL normalises on the way in and prints
+     * its own spacing and key order on the way out, so {@code contains("\"version\":1")}
+     * asserts how Jackson happened to format the write, not what was written. Three of
+     * these assertions failed on exactly that and none of them was about a defect.
+     */
+    private String field(String json, String key) {
+        assertThat(json).as("no recorded state to read '%s' from", key).isNotNull();
+        try {
+            JsonNode node = new ObjectMapper().readTree(json).path(key);
+            assertThat(node.isMissingNode())
+                    .as("expected the entry to record '%s'; it recorded %s", key, json)
+                    .isFalse();
+            return node.asText();
+        } catch (Exception malformed) {
+            throw new AssertionError("audit payload is not valid JSON: " + json, malformed);
+        }
     }
 
     /** The single entry for this action on this entity, failing loudly if there is not one. */
