@@ -51,6 +51,23 @@ public interface CollectionPolicy {
         return !recordsCustomerPayments();
     }
 
+    /*
+     * R-DP-1's predicate itself — down_payment_satisfied(deal) — is deliberately NOT here,
+     * and its absence is recorded rather than left to be discovered.
+     *
+     * The rule resolves by commercial model into three branches. Brokered is answerable
+     * today: deal.down_payment_confirmed_at is set, and this module already decides whether
+     * that milestone exists at all. R-DP-3's zero-down carve-out is answerable today too.
+     * The own-inventory branch is not: it asks whether the down-payment installment is
+     * paid, which means allocated_amount against cleared payments — a column that does not
+     * exist until Epic 6 and deliberately does not exist yet (doc 22's V7 header).
+     *
+     * Two thirds of a predicate is worse than none. Its only consumer is R-COMM-6's inbound
+     * commission trigger in Epic 8, by which time Epic 6 will have supplied the missing
+     * branch; writing it now would mean a method that silently answers false for every
+     * own-inventory deal, and the first thing built on it would inherit that as a fact.
+     */
+
     /**
      * Whether completion is a person's decision rather than the arithmetic consequence of a
      * fully-paid schedule (doc 18 section 4, rev 2).
