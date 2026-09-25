@@ -139,9 +139,17 @@ public class ReservationService {
 
         UnitClaim claim = units.claimForReservation(reservation.unitId());
         if (!claim.won()) {
+            // Says what the unit actually IS. "No longer available to reserve" put the
+            // status in the details map, which no screen showed, so an agent looking at
+            // the unit in their inventory list was told it was unavailable and given no
+            // way to find out why. A pending hold withholds nothing (E4-S1), so the unit
+            // can be sold or reserved out from under one at any time before confirmation —
+            // and which of those happened is the whole of what the agent needs to know.
             throw new ApiException(ErrorCode.CONFLICT,
-                    "That unit is no longer available to reserve", Map.of(
-                            "unitId", reservation.unitId().toString(),
+                    "This hold cannot be confirmed: that unit is now "
+                            + claim.statusNow().code()
+                            + ", and only an available unit can be withheld",
+                    Map.of("unitId", reservation.unitId().toString(),
                             "unitStatus", claim.statusNow().code()));
         }
 
