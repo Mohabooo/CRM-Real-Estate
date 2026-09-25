@@ -207,11 +207,49 @@ public class PaymentPlanService {
      */
     @Transactional
     public PlanWithSchedule applyTemplate(UUID dealId, UUID templateId) {
+        return apply(dealId, templateId, PlanOverrides.none());
+    }
+
+    /**
+     * R-INST-8. The same, with some or all of the terms stated on the deal itself.
+     *
+     * <p>Doc 17 permits a manual override pre-activation and re-asserts R-PLAN-4 over it.
+     * Both halves are honoured structurally: {@code requireDealEditable} is the
+     * pre-activation half, and the overridden terms reach the schedule only through
+     * {@link PaymentScheduleGenerator}, which is where R-PLAN-4 is enforced — so an override
+     * cannot produce a decomposition a template could not. Activation re-checks the stored
+     * rows regardless (see {@link #activateFor}), which catches a net value that moved after
+     * the override rather than because of it.
+     *
+     * <p>The template is optional. With one, it supplies every term the deal does not state
+     * and the plan keeps its id as provenance; TPL-004 holds because nothing here writes back
+     * — a template is read into a {@code Shape} and the entity is never touched again. With
+     * no template the deal must state its terms in full, which {@code missingFor} checks
+     * before anything is generated.
+     */
+    @Transactional
+    public PlanWithSchedule apply(UUID dealId, UUID templateId, PlanOverrides overrides) {
         requireSellingRole();
         UUID tenantId = TenantContext.require();
         Deal deal = requireDeal(tenantId, dealId);
         requireDealEditable(deal);
 
+        PaymentPlanTemplate template =
+                templateId == null ? null : applicableTemplate(deal, templateId);
+        requireTermsComplete(overrides, template);
+
+        PaymentPlanTemplate.Shape terms =
+                overrides.resolveAgainst(template, deal.netValue().currency());
+        PaymentSchedule schedule = generate(deal, terms, templateId);
+        Optional<CustomerPaymentPlan> existing = plans.findDraftForDeal(tenantId, dealId);
+
+        return existing.isPresent()
+                ? regenerate(deal, existing.get(), terms, templateId, overrides, schedule)
+                : create(deal, terms, templateId, overrides, schedule);
+    }
+
+    /** The template named on the request, having checked it may be applied to this deal. */
+    private PaymentPlanTemplate applicableTemplate(Deal deal, UUID templateId) {
         PaymentPlanTemplate template = getTemplate(templateId);
         if (!template.isActive()) {
             throw ApiException.businessRule(
@@ -220,13 +258,26 @@ public class PaymentPlanService {
                     Map.of("templateId", templateId.toString()));
         }
         requireTemplateAvailableToDeal(deal, template);
+        return template;
+    }
 
-        PaymentSchedule schedule = generate(deal, template);
-        Optional<CustomerPaymentPlan> existing = plans.findDraftForDeal(tenantId, dealId);
-
-        return existing.isPresent()
-                ? regenerate(deal, existing.get(), template, schedule)
-                : create(deal, template, schedule);
+    /**
+     * Refuses terms that name no template and do not state themselves in full.
+     *
+     * <p>Named separately from the generator's own refusals because it is a different
+     * failure: the generator rejects terms that cannot be honoured, this rejects terms that
+     * were never given. An agent who left a field blank wants to know which one, not to be
+     * told their arithmetic is impossible.
+     */
+    private static void requireTermsComplete(PlanOverrides overrides,
+                                             PaymentPlanTemplate template) {
+        List<String> missing = overrides.missingFor(template);
+        if (!missing.isEmpty()) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "Without a payment plan template the deal has to state its own terms in "
+                            + "full; these are missing: " + String.join(", ", missing),
+                    Map.of("missing", missing));
+        }
     }
 
     /**
@@ -399,30 +450,38 @@ public class PaymentPlanService {
 
     // ------------------------------------------------------------------ internals
 
-    private PaymentSchedule generate(Deal deal, PaymentPlanTemplate template) {
+    /**
+     * Runs the resolved terms through the generator.
+     *
+     * <p>Takes a {@link PaymentPlanTemplate.Shape} rather than the template, because after
+     * R-INST-8 the terms are not necessarily any template's. The generator is given
+     * {@link PlanTerms} and nothing else — not the commercial model, the tenant or the deal
+     * — so FIN-001d holds by construction, and so does the weaker claim that overridden
+     * terms and an identical stored template produce the same schedule.
+     */
+    private PaymentSchedule generate(Deal deal, PaymentPlanTemplate.Shape terms, UUID templateId) {
         Unit unit = units.get(deal.unitId());
         Project project = projects.get(unit.projectId());
 
-        PlanTerms terms;
         try {
-            terms = template.termsFor(deal.netValue(), deal.dealDate(),
-                    Optional.ofNullable(project.deliveryDate()));
-            return PaymentScheduleGenerator.generate(terms);
+            return PaymentScheduleGenerator.generate(terms.termsFor(deal.netValue(),
+                    deal.dealDate(), Optional.ofNullable(project.deliveryDate())));
         } catch (IllegalArgumentException e) {
             // The generator refuses terms it cannot honour — a down payment larger than the
             // net value, a delivery tranche that leaves nothing to finance. Those are the
             // agent's numbers being wrong, not the system's, so they read as a 422 naming
             // the figures rather than a stack trace.
-            throw new ApiException(ErrorCode.PLAN_INVARIANT_VIOLATION, e.getMessage(),
-                    Map.of("netValue", deal.netValue().toPlainString(),
-                            "templateId", template.id().toString()));
+            Map<String, Object> details = new LinkedHashMap<>();
+            details.put("netValue", deal.netValue().toPlainString());
+            details.put("templateId", String.valueOf(templateId));
+            throw new ApiException(ErrorCode.PLAN_INVARIANT_VIOLATION, e.getMessage(), details);
         }
     }
 
-    private PlanWithSchedule create(Deal deal, PaymentPlanTemplate template,
-                                    PaymentSchedule schedule) {
+    private PlanWithSchedule create(Deal deal, PaymentPlanTemplate.Shape terms, UUID templateId,
+                                    PlanOverrides overrides, PaymentSchedule schedule) {
         CustomerPaymentPlan plan = CustomerPaymentPlan.draftFrom(deal.tenantId(), deal.id(),
-                template.id(), schedule, template.installmentCount(), template.frequency(),
+                templateId, schedule, terms.installmentCount(), terms.frequency(),
                 firstInstallmentDate(schedule));
         plan.recordActor(SecurityContext.require().userId(), true);
 
@@ -440,19 +499,20 @@ public class PaymentPlanService {
         }
         List<Installment> rows = writeRows(deal, saved.id(), schedule);
 
-        audit.recordCreation(AuditAction.PAYMENT_PLAN_GENERATED, "CustomerPaymentPlan",
-                saved.id(), describe(deal, saved, schedule));
+        audit.record(AuditAction.PAYMENT_PLAN_GENERATED, "CustomerPaymentPlan", saved.id(),
+                null, describe(deal, saved, schedule), divergence(overrides));
         return new PlanWithSchedule(saved, rows);
     }
 
     private PlanWithSchedule regenerate(Deal deal, CustomerPaymentPlan plan,
-                                        PaymentPlanTemplate template, PaymentSchedule schedule) {
+                                        PaymentPlanTemplate.Shape terms, UUID templateId,
+                                        PlanOverrides overrides, PaymentSchedule schedule) {
         Map<String, Object> before = describe(deal, plan, null);
 
         installments.deleteDraftRows(deal.tenantId(), plan.id());
         try {
-            plan.regenerateFrom(template.id(), schedule, template.installmentCount(),
-                    template.frequency(), firstInstallmentDate(schedule));
+            plan.regenerateFrom(templateId, schedule, terms.installmentCount(),
+                    terms.frequency(), firstInstallmentDate(schedule));
         } catch (IllegalStateException e) {
             throw new ApiException(ErrorCode.ILLEGAL_STATE_TRANSITION, e.getMessage());
         }
@@ -461,8 +521,23 @@ public class PaymentPlanService {
         List<Installment> rows = writeRows(deal, saved.id(), schedule);
 
         audit.record(AuditAction.PAYMENT_PLAN_REGENERATED, "CustomerPaymentPlan", saved.id(),
-                before, describe(deal, saved, schedule), null);
+                before, describe(deal, saved, schedule), divergence(overrides));
         return new PlanWithSchedule(saved, rows);
+    }
+
+    /**
+     * TPL-004's evidence: which terms this instance stated for itself, or null for none.
+     *
+     * <p>Goes in the audit entry's reason rather than its after-state, because it is not a
+     * property of the stored plan. The plan keeps figures — a net value, a row count — and
+     * those are the same whether they came from a template or from an agent typing them, so
+     * without this the trail cannot answer whether the instance diverged from the template
+     * whose id it carries.
+     */
+    private static String divergence(PlanOverrides overrides) {
+        return overrides.isEmpty()
+                ? null
+                : "terms stated on the deal: " + String.join(", ", overrides.overriddenTerms());
     }
 
     /**
@@ -584,6 +659,7 @@ public class PaymentPlanService {
                                                 PaymentSchedule schedule) {
         Map<String, Object> described = new LinkedHashMap<>();
         described.put("dealId", deal.id().toString());
+        described.put("sourceTemplateId", String.valueOf(plan.sourceTemplateId()));
         described.put("version", plan.version());
         described.put("netValue", plan.netValue().toPlainString());
         described.put("downPayment", plan.downPaymentAmount().toPlainString());

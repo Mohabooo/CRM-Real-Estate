@@ -235,7 +235,12 @@
       "generated": "Schedule generated.",
       "none": "No schedule yet. Choose a payment plan to generate one.",
       "noTemplates": "No payment plans are offered for this unit's project yet.",
-      "templatesUnavailable": "The list of payment plans could not be loaded. Reload the page to try again."
+      "templatesUnavailable": "The list of payment plans could not be loaded. Reload the page to try again.",
+      "customTerms": "This deal's own terms",
+      "customTermsHint": "Leave a field blank to keep the plan's value. With no plan chosen, every term has to be stated.",
+      "noTemplate": "None — state the terms below",
+      "templateHint": "Pick a plan, state the terms below, or both.",
+      "planValue": "Plan: {{value}}"
     },
     "schedule": {
       "downPayment": "Down payment",

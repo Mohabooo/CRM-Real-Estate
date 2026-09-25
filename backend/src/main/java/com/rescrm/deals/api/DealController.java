@@ -7,13 +7,16 @@ import com.rescrm.deals.api.DealDtos.ConfirmDownPaymentRequest;
 import com.rescrm.deals.api.DealDtos.DealResponse;
 import com.rescrm.deals.api.DealDtos.DraftDealRequest;
 import com.rescrm.deals.api.DealDtos.PageResponse;
+import com.rescrm.deals.api.DealDtos.PlanOverridesRequest;
 import com.rescrm.deals.api.DealDtos.ScheduleResponse;
 import com.rescrm.deals.api.DealDtos.TemplateResponse;
 import com.rescrm.deals.domain.Concession;
 import com.rescrm.deals.domain.Deal;
 import com.rescrm.deals.service.DealService;
 import com.rescrm.deals.service.PaymentPlanService;
+import com.rescrm.deals.service.PlanOverrides;
 import com.rescrm.deals.service.PlanWithSchedule;
+import com.rescrm.finance.schedule.DownPayment;
 import com.rescrm.platform.errors.ApiException;
 import com.rescrm.platform.errors.ErrorCode;
 import com.rescrm.platform.money.CurrencyCode;
@@ -121,8 +124,65 @@ public class DealController {
     @PostMapping("/{id}/payment-plan")
     public DealResponse applyTemplate(@PathVariable UUID id,
                                       @Valid @RequestBody ApplyTemplateRequest request) {
-        plans.applyTemplate(id, request.templateId());
+        plans.apply(id, request.templateId(), overridesFrom(request.overrides()));
         return toResponse(deals.get(id));
+    }
+
+    /**
+     * Turns the request's stated terms into the shape the service takes (R-INST-8).
+     *
+     * <p>Absent fields stay absent rather than becoming defaults: null means "leave it to
+     * the template", and the service is the one that knows whether there is a template to
+     * leave it to. Defaulting here would quietly turn a forgotten field into a stated one.
+     */
+    private static PlanOverrides overridesFrom(PlanOverridesRequest request) {
+        if (request == null) {
+            return PlanOverrides.none();
+        }
+        try {
+            return new PlanOverrides(
+                    statedDownPayment(request),
+                    notBlank(request.deliveryPaymentPercent())
+                            ? Percentage.of(request.deliveryPaymentPercent().trim())
+                            : null,
+                    request.installmentCount(),
+                    request.frequency(),
+                    request.firstInstallmentOffsetDays());
+        } catch (NumberFormatException e) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "A percentage or amount in these terms is not a valid decimal");
+        } catch (IllegalArgumentException | ArithmeticException e) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED, e.getMessage());
+        }
+    }
+
+    /**
+     * At most one of the two down-payment fields, or neither.
+     *
+     * <p>"Neither" is allowed here and not on a template, because a template must state a
+     * down payment and an override need not: leaving both out says the template's stands.
+     * Both together is still refused — "10% down" and "500,000 down" are different
+     * statements, and a request carrying both is ambiguous about which was negotiated.
+     */
+    private static DownPayment statedDownPayment(PlanOverridesRequest request) {
+        boolean hasPercent = notBlank(request.downPaymentPercent());
+        boolean hasAmount = notBlank(request.downPaymentAmount());
+        if (hasPercent && hasAmount) {
+            throw new ApiException(ErrorCode.VALIDATION_FAILED,
+                    "A down payment is either a percentage or a fixed amount; give at most one");
+        }
+        if (hasPercent) {
+            return DownPayment.percent(Percentage.of(request.downPaymentPercent().trim()));
+        }
+        if (hasAmount) {
+            return DownPayment.fixed(Money.of(request.downPaymentAmount().trim(),
+                    CurrencyCode.EGP));
+        }
+        return null;
+    }
+
+    private static boolean notBlank(String value) {
+        return value != null && !value.isBlank();
     }
 
     /** The schedule alone, for a screen that already has the deal. */

@@ -17,12 +17,17 @@ import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useParams } from 'react-router-dom';
+import Collapse from '@mui/material/Collapse';
+import FormControlLabel from '@mui/material/FormControlLabel';
+import Switch from '@mui/material/Switch';
 import {
   dealsApi,
   describeTemplate,
   type Deal,
   type DiscountInput,
+  type Frequency,
   type PaymentPlanTemplate,
+  type PlanOverridesInput,
 } from '@/api/deals';
 import { isApiError } from '@/api/errors';
 import { inventoryApi, type Unit } from '@/api/inventory';
@@ -37,6 +42,100 @@ const DEAL_STATUS_COLOURS: Record<Deal['status'], 'default' | 'success' | 'info'
   completed: 'info',
   cancelled: 'error',
 };
+
+const FREQUENCIES: Frequency[] = ['monthly', 'quarterly', 'semi_annual', 'annual'];
+
+/**
+ * The terms an agent may state on the deal itself (R-INST-8).
+ *
+ * Held as the strings that were typed, not as parsed numbers. A half-typed "1" in the
+ * installments box is a string, and turning it into the number 1 on every keystroke is how
+ * a field becomes impossible to correct.
+ */
+interface StatedTerms {
+  downPaymentKind: 'percent' | 'amount';
+  downPaymentValue: string;
+  deliveryPercent: string;
+  installmentCount: string;
+  frequency: Frequency | '';
+  offsetDays: string;
+}
+
+const EMPTY_TERMS: StatedTerms = {
+  downPaymentKind: 'percent',
+  downPaymentValue: '',
+  deliveryPercent: '',
+  installmentCount: '',
+  frequency: '',
+  offsetDays: '',
+};
+
+/**
+ * The stated terms as the API takes them, or undefined when nothing was stated.
+ *
+ * Blank fields are left out rather than sent as empty strings, because absent means "use
+ * the plan's value" and the server is the one that knows whether there is a plan to use.
+ * Nothing here is computed: these are the terms, not the schedule.
+ */
+function overridesFrom(terms: StatedTerms): PlanOverridesInput | undefined {
+  const stated: PlanOverridesInput = {};
+  const value = terms.downPaymentValue.trim();
+  if (value !== '') {
+    if (terms.downPaymentKind === 'percent') {
+      stated.downPaymentPercent = value;
+    } else {
+      stated.downPaymentAmount = value;
+    }
+  }
+  if (terms.deliveryPercent.trim() !== '') {
+    stated.deliveryPaymentPercent = terms.deliveryPercent.trim();
+  }
+  if (terms.installmentCount.trim() !== '') {
+    stated.installmentCount = Number(terms.installmentCount.trim());
+  }
+  if (terms.frequency !== '') {
+    stated.frequency = terms.frequency;
+  }
+  if (terms.offsetDays.trim() !== '') {
+    stated.firstInstallmentOffsetDays = Number(terms.offsetDays.trim());
+  }
+  return Object.keys(stated).length === 0 ? undefined : stated;
+}
+
+/**
+ * What the chosen plan says for one term, shown as a field's placeholder.
+ *
+ * So that an empty box reads as "the plan's value" rather than as nothing. With no plan
+ * chosen there is nothing to fall back to, and the placeholder is empty — which is the
+ * honest rendering of a term that has to be stated.
+ */
+function planPlaceholder(
+  templates: PaymentPlanTemplate[],
+  templateId: string,
+  field: 'downPayment' | 'delivery' | 'count',
+): string {
+  const chosen = templates.find((template) => template.id === templateId);
+  if (!chosen) {
+    return '';
+  }
+  switch (field) {
+    case 'downPayment':
+      return chosen.downPaymentValue;
+    case 'delivery':
+      return chosen.deliveryPaymentPercent;
+    case 'count':
+      return String(chosen.installmentCount);
+  }
+}
+
+/** A whole number above zero, typed one character at a time without going red mid-way. */
+function isWholeCount(value: string): boolean {
+  return /^[1-9][0-9]*$/.test(value.trim());
+}
+
+function isWholeDays(value: string): boolean {
+  return /^[0-9]+$/.test(value.trim());
+}
 
 /**
  * One deal, from draft to activation (E5-S1, S2, S4, S5, S7, S8).
@@ -63,6 +162,8 @@ export function DealPage() {
   const [templates, setTemplates] = useState<PaymentPlanTemplate[]>([]);
   const [templatesFailed, setTemplatesFailed] = useState(false);
   const [templateId, setTemplateId] = useState('');
+  const [statingTerms, setStatingTerms] = useState(false);
+  const [terms, setTerms] = useState(EMPTY_TERMS);
 
   const [discountPercent, setDiscountPercent] = useState('');
   const [discountAmount, setDiscountAmount] = useState('');
@@ -157,6 +258,22 @@ export function DealPage() {
     (discountPercent.trim() !== '' || discountAmount.trim() !== '');
 
   const blockingReason = activationBlocker(deal);
+
+  // What was stated, and whether it is well formed. "Well formed" is all this page judges:
+  // whether the terms are COMPLETE is the server's call, because only it knows whether a
+  // plan is standing behind them, and whether they can be honoured is the generator's.
+  const stated = statingTerms ? overridesFrom(terms) : undefined;
+  const downValueInvalid =
+    terms.downPaymentValue.trim() !== '' && !isValidAmount(terms.downPaymentValue);
+  const deliveryInvalid =
+    terms.deliveryPercent.trim() !== '' && !isValidAmount(terms.deliveryPercent);
+  const countInvalid =
+    terms.installmentCount.trim() !== '' && !isWholeCount(terms.installmentCount);
+  const offsetInvalid = terms.offsetDays.trim() !== '' && !isWholeDays(terms.offsetDays);
+  const termsMalformed =
+    statingTerms && (downValueInvalid || deliveryInvalid || countInvalid || offsetInvalid);
+  const canGenerate =
+    !busy && !termsMalformed && (templateId !== '' || stated !== undefined);
 
   return (
     <Box>
@@ -369,9 +486,10 @@ export function DealPage() {
                   ? t('deals.plan.templatesUnavailable')
                   : templates.length === 0
                     ? t('deals.plan.noTemplates')
-                    : ' '
+                    : t('deals.plan.templateHint')
               }
             >
+              <MenuItem value="">{t('deals.plan.noTemplate')}</MenuItem>
               {templates.map((template) => (
                 <MenuItem key={template.id} value={template.id}>
                   {template.name} — {describeTemplate(template, t)}
@@ -381,10 +499,10 @@ export function DealPage() {
             <Box>
               <Button
                 variant="contained"
-                disabled={busy || templateId === ''}
+                disabled={!canGenerate}
                 onClick={() => {
                   void run(
-                    () => dealsApi.applyTemplate(deal.id, templateId),
+                    () => dealsApi.applyTemplate(deal.id, templateId, stated),
                     'deals.plan.generated',
                   );
                 }}
@@ -393,6 +511,119 @@ export function DealPage() {
               </Button>
             </Box>
           </Stack>
+        ) : null}
+
+        {/* --------------------------------------------- R-INST-8 stated terms */}
+        {editable ? (
+          <Box sx={{ mb: 3 }}>
+            <FormControlLabel
+              control={
+                <Switch
+                  size="small"
+                  checked={statingTerms}
+                  onChange={(event) => {
+                    setStatingTerms(event.target.checked);
+                    if (!event.target.checked) {
+                      setTerms(EMPTY_TERMS);
+                    }
+                  }}
+                  inputProps={{ 'aria-label': t('deals.plan.customTerms') }}
+                />
+              }
+              label={t('deals.plan.customTerms')}
+            />
+            <Collapse in={statingTerms} unmountOnExit>
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                {t('deals.plan.customTermsHint')}
+              </Typography>
+              <Stack
+                direction={{ xs: 'column', md: 'row' }}
+                spacing={2}
+                useFlexGap
+                flexWrap="wrap"
+              >
+                <TextField
+                  select
+                  size="small"
+                  label={t('templates.downPaymentKind')}
+                  value={terms.downPaymentKind}
+                  onChange={(event) =>
+                    setTerms({
+                      ...terms,
+                      downPaymentKind: event.target.value as 'percent' | 'amount',
+                    })
+                  }
+                  sx={{ minWidth: 150 }}
+                >
+                  <MenuItem value="percent">{t('templates.percent')}</MenuItem>
+                  <MenuItem value="amount">{t('templates.fixedAmount')}</MenuItem>
+                </TextField>
+                <TextField
+                  size="small"
+                  label={
+                    terms.downPaymentKind === 'percent'
+                      ? t('templates.downPercent')
+                      : t('templates.downAmount')
+                  }
+                  value={terms.downPaymentValue}
+                  onChange={(event) =>
+                    setTerms({ ...terms, downPaymentValue: event.target.value })
+                  }
+                  error={downValueInvalid}
+                  placeholder={planPlaceholder(templates, templateId, 'downPayment')}
+                  sx={{ minWidth: 200 }}
+                />
+                <TextField
+                  size="small"
+                  label={t('templates.deliveryPercent')}
+                  value={terms.deliveryPercent}
+                  onChange={(event) =>
+                    setTerms({ ...terms, deliveryPercent: event.target.value })
+                  }
+                  error={deliveryInvalid}
+                  placeholder={planPlaceholder(templates, templateId, 'delivery')}
+                  sx={{ minWidth: 200 }}
+                />
+                <TextField
+                  size="small"
+                  label={t('templates.installmentCount')}
+                  value={terms.installmentCount}
+                  onChange={(event) =>
+                    setTerms({ ...terms, installmentCount: event.target.value })
+                  }
+                  error={countInvalid}
+                  placeholder={planPlaceholder(templates, templateId, 'count')}
+                  sx={{ minWidth: 140 }}
+                />
+                <TextField
+                  select
+                  size="small"
+                  label={t('templates.frequency')}
+                  value={terms.frequency}
+                  onChange={(event) =>
+                    setTerms({ ...terms, frequency: event.target.value as Frequency | '' })
+                  }
+                  sx={{ minWidth: 170 }}
+                >
+                  <MenuItem value="">—</MenuItem>
+                  {FREQUENCIES.map((frequency) => (
+                    <MenuItem key={frequency} value={frequency}>
+                      {t(`frequency.${frequency}`)}
+                    </MenuItem>
+                  ))}
+                </TextField>
+                <TextField
+                  size="small"
+                  label={t('templates.offsetDays')}
+                  value={terms.offsetDays}
+                  onChange={(event) => setTerms({ ...terms, offsetDays: event.target.value })}
+                  error={offsetInvalid}
+                  helperText={t('templates.offsetHint')}
+                  sx={{ minWidth: 260 }}
+                />
+              </Stack>
+            </Collapse>
+          </Box>
         ) : null}
 
         {deal.schedule ? (

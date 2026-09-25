@@ -11,6 +11,8 @@ import com.rescrm.finance.schedule.DownPayment;
 import com.rescrm.finance.schedule.Frequency;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import org.springframework.data.domain.Page;
 
@@ -165,7 +167,36 @@ public final class DealDtos {
     public record CancelDealRequest(@NotBlank @Size(max = 500) String reason) {
     }
 
-    public record ApplyTemplateRequest(@NotNull UUID templateId) {
+    /**
+     * Doc 23's {@code { template_id?, overrides? }} for {@code POST /deals/{id}/payment-plan}.
+     *
+     * <p>Both optional, and the combinations are all meaningful. A template alone applies it
+     * as stored. A template with overrides applies it with the named terms replaced
+     * (R-INST-8, and TPL-004's "instance diverges from template"). Overrides alone state a
+     * negotiated shape that no stored template has, which is why the template id carries no
+     * {@code @NotNull} — the service refuses incomplete terms and names the missing fields,
+     * which is a better answer than "templateId must not be null".
+     */
+    public record ApplyTemplateRequest(UUID templateId, PlanOverridesRequest overrides) {
+    }
+
+    /**
+     * Terms stated on the deal, each one optional.
+     *
+     * <p>A null field means "leave it to the template". Down payment keeps the two-field
+     * shape the rest of the API uses, so a request cannot say "percent" and carry an amount.
+     *
+     * @param downPaymentPercent at most one of these two, as a decimal string
+     * @param downPaymentAmount  the other
+     * @param firstInstallmentOffsetDays days after the deal date; null leaves the template's,
+     *                                   or, with no template, one frequency interval
+     */
+    public record PlanOverridesRequest(String downPaymentPercent,
+                                       String downPaymentAmount,
+                                       String deliveryPaymentPercent,
+                                       @Positive Integer installmentCount,
+                                       Frequency frequency,
+                                       @PositiveOrZero Integer firstInstallmentOffsetDays) {
     }
 
     /** R-DP-2: a date and a confirming user, and no amount. */

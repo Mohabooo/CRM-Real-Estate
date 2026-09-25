@@ -226,11 +226,88 @@ describe('DealPage', () => {
     await user.click(await screen.findByRole('option', { name: /Standard 8-year/ }));
     await user.click(screen.getByRole('button', { name: 'Generate schedule' }));
 
-    await waitFor(() => expect(dealsApi.applyTemplate).toHaveBeenCalledWith('d1', 't1'));
+    await waitFor(() =>
+      expect(dealsApi.applyTemplate).toHaveBeenCalledWith('d1', 't1', undefined),
+    );
 
     // The down payment appears as a headline figure and again as the schedule's first row,
     // which is what "the preview is the stored schedule" looks like on screen.
     await waitFor(() => expect(screen.getAllByText('285,000.00').length).toBe(2));
+  });
+
+  it('sends the terms an agent states on the deal, and nothing it did not type', async () => {
+    const user = userEvent.setup();
+    vi.mocked(dealsApi.get).mockResolvedValue(deal({ schedule: null }));
+    vi.mocked(dealsApi.applyTemplate).mockResolvedValue(deal());
+    renderDeal();
+
+    await waitFor(() => expect(screen.getByLabelText('Payment plan')).toBeInTheDocument());
+    await user.click(screen.getByLabelText('Payment plan'));
+    await user.click(await screen.findByRole('option', { name: /Standard 8-year/ }));
+
+    await user.click(screen.getByLabelText("This deal's own terms"));
+    await user.type(screen.getByLabelText('Installments'), '16');
+    await user.click(screen.getByRole('button', { name: 'Generate schedule' }));
+
+    // Only the term that was typed. A blank field means "keep the plan's value", so
+    // filling the rest in from the selected plan would turn what the agent left alone
+    // into something they stated.
+    await waitFor(() =>
+      expect(dealsApi.applyTemplate).toHaveBeenCalledWith('d1', 't1', {
+        installmentCount: 16,
+      }),
+    );
+  });
+
+  it('lets a deal state every term with no plan behind it', async () => {
+    const user = userEvent.setup();
+    vi.mocked(dealsApi.get).mockResolvedValue(deal({ schedule: null }));
+    vi.mocked(dealsApi.applyTemplate).mockResolvedValue(deal());
+    renderDeal();
+
+    await waitFor(() => expect(screen.getByLabelText("This deal's own terms")).toBeInTheDocument());
+    await user.click(screen.getByLabelText("This deal's own terms"));
+
+    await user.type(screen.getByLabelText('Down payment (% of net)'), '10');
+    await user.type(screen.getByLabelText('Held to delivery (% of net)'), '5');
+    await user.type(screen.getByLabelText('Installments'), '32');
+    await user.click(screen.getByLabelText('Frequency'));
+    await user.click(await screen.findByRole('option', { name: 'quarterly' }));
+    await user.click(screen.getByRole('button', { name: 'Generate schedule' }));
+
+    await waitFor(() =>
+      expect(dealsApi.applyTemplate).toHaveBeenCalledWith('d1', '', {
+        downPaymentPercent: '10',
+        deliveryPaymentPercent: '5',
+        installmentCount: 32,
+        frequency: 'quarterly',
+      }),
+    );
+  });
+
+  it('will not generate from nothing at all', async () => {
+    vi.mocked(dealsApi.get).mockResolvedValue(deal({ schedule: null }));
+    renderDeal();
+
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Generate schedule' })).toBeDisabled(),
+    );
+    expect(dealsApi.applyTemplate).not.toHaveBeenCalled();
+  });
+
+  it('refuses to send a malformed figure rather than letting the server reject it', async () => {
+    const user = userEvent.setup();
+    vi.mocked(dealsApi.get).mockResolvedValue(deal({ schedule: null }));
+    renderDeal();
+
+    await waitFor(() => expect(screen.getByLabelText('Payment plan')).toBeInTheDocument());
+    await user.click(screen.getByLabelText('Payment plan'));
+    await user.click(await screen.findByRole('option', { name: /Standard 8-year/ }));
+
+    await user.click(screen.getByLabelText("This deal's own terms"));
+    await user.type(screen.getByLabelText('Installments'), '3.5');
+
+    expect(screen.getByRole('button', { name: 'Generate schedule' })).toBeDisabled();
   });
 
   it('offers the brokered down-payment confirmation only where it applies', async () => {

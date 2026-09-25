@@ -115,6 +115,23 @@ export interface TemplateInput {
   firstInstallmentOffsetDays?: number;
 }
 
+/**
+ * Terms stated on one deal rather than taken from a plan (R-INST-8).
+ *
+ * Every field optional, and an omitted one means "whatever the plan says". With no plan at
+ * all the server refuses terms that are not stated in full, and names the ones that are
+ * missing — which is a better answer than this module guessing at defaults and sending a
+ * shape nobody typed.
+ */
+export interface PlanOverridesInput {
+  downPaymentPercent?: string;
+  downPaymentAmount?: string;
+  deliveryPaymentPercent?: string;
+  installmentCount?: number;
+  frequency?: Frequency;
+  firstInstallmentOffsetDays?: number;
+}
+
 export interface DraftDealInput {
   unitId: string;
   customerId: string;
@@ -151,11 +168,20 @@ export const dealsApi = {
   /**
    * Generates and STORES the schedule, returning the deal with it attached.
    *
-   * Run again it regenerates in place, so comparing two templates leaves the one that was
+   * Run again it regenerates in place, so comparing two plans leaves the one that was
    * settled on and no orphans.
+   *
+   * Both arguments are optional to the server: a plan alone applies it as stored, a plan
+   * with overrides applies it with the named terms replaced, and overrides alone state a
+   * negotiated shape no plan holds. The schedule is generated server-side in every case,
+   * including the last — an overridden term changes what is asked for, never who computes
+   * it.
    */
-  applyTemplate: (id: string, templateId: string) =>
-    apiClient.post<Deal>(`/api/v1/deals/${id}/payment-plan`, { templateId }),
+  applyTemplate: (id: string, templateId: string | null, overrides?: PlanOverridesInput) =>
+    apiClient.post<Deal>(`/api/v1/deals/${id}/payment-plan`, {
+      templateId: templateId === '' ? null : templateId,
+      overrides: overrides ?? null,
+    }),
 
   activate: (id: string) => apiClient.post<Deal>(`/api/v1/deals/${id}/activate`),
 

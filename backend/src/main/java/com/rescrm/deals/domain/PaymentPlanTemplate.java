@@ -137,6 +137,27 @@ public class PaymentPlanTemplate {
     public record Shape(DownPayment downPayment, Percentage deliveryPercent,
                         int installmentCount, Frequency frequency,
                         Integer firstInstallmentOffsetDays) {
+
+        /**
+         * The terms this shape produces for one deal.
+         *
+         * <p>Lives on the shape rather than on the entity because a shape need not have come
+         * from a stored template: R-INST-8 lets a deal state its own terms, and those terms
+         * have to reach the generator by the same route a template's do. One route means one
+         * arithmetic, which is the whole of why an override cannot produce a schedule a
+         * template could not.
+         *
+         * <p>The offset is passed through exactly as it stands, null included. Null is not
+         * zero and it is not ninety: doc 17 section 12 gives the default as one frequency
+         * INTERVAL, and the generator honours that as month arithmetic so the schedule keeps
+         * its original day of the month (R-INST-6).
+         */
+        public PlanTerms termsFor(Money netValue, LocalDate dealDate,
+                                  Optional<LocalDate> projectDeliveryDate) {
+            return new PlanTerms(netValue, downPayment, deliveryPercent, installmentCount,
+                    frequency, dealDate, Optional.ofNullable(firstInstallmentOffsetDays),
+                    projectDeliveryDate);
+        }
     }
 
     public static PaymentPlanTemplate create(UUID tenantId, UUID projectId, String name,
@@ -168,9 +189,18 @@ public class PaymentPlanTemplate {
      */
     public PlanTerms termsFor(Money netValue, LocalDate dealDate,
                               Optional<LocalDate> projectDeliveryDate) {
-        return new PlanTerms(netValue, downPaymentIn(netValue.currency()), deliveryPaymentPercent,
-                installmentCount, frequency(), dealDate,
-                Optional.ofNullable(firstInstallmentOffsetDays), projectDeliveryDate);
+        return shape(netValue.currency()).termsFor(netValue, dealDate, projectDeliveryDate);
+    }
+
+    /**
+     * This template's terms as a plain shape, for overriding against (R-INST-8).
+     *
+     * <p>Takes the currency for the same reason {@link #downPaymentIn} does: a fixed down
+     * payment is an amount, and the column stores only the number.
+     */
+    public Shape shape(CurrencyCode currency) {
+        return new Shape(downPaymentIn(currency), deliveryPaymentPercent, installmentCount,
+                frequency(), firstInstallmentOffsetDays);
     }
 
     /**

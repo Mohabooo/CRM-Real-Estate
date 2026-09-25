@@ -9,6 +9,7 @@ import com.rescrm.deals.domain.PaymentPlanTemplate;
 import com.rescrm.deals.domain.PlanStatus;
 import com.rescrm.deals.service.DealService;
 import com.rescrm.deals.service.PaymentPlanService;
+import com.rescrm.deals.service.PlanOverrides;
 import com.rescrm.deals.service.PlanWithSchedule;
 import com.rescrm.finance.schedule.DownPayment;
 import com.rescrm.finance.schedule.Frequency;
@@ -551,6 +552,178 @@ class DealLifecycleIT extends AbstractPostgresIT {
             Deal active = activateCanonicalDeal();
             assertCode(() -> planService.applyTemplate(active.id(), templateId),
                     ErrorCode.ILLEGAL_STATE_TRANSITION);
+        }
+    }
+
+    // ========================================================================= R-INST-8
+
+    @Nested
+    @DisplayName("terms stated on the deal")
+    class OverriddenTerms {
+
+        @Test
+        @DisplayName("TPL-004 — an instance diverges without the template moving")
+        void overriding_does_not_alter_the_template() {
+            Deal deal = dealService.addDiscount(draft().id(),
+                    Concession.ofPercent(CanonicalDeal.DISCOUNT_PERCENT), null);
+
+            PlanWithSchedule plan = planService.apply(deal.id(), templateId,
+                    new PlanOverrides(null, null, 16, null, null));
+
+            assertThat(plan.plan().installmentCount())
+                    .as("the deal got the count it negotiated")
+                    .isEqualTo(16);
+            assertThat(plan.plan().sourceTemplateId())
+                    .as("and still records which template it started from")
+                    .isEqualTo(templateId);
+
+            PaymentPlanTemplate template = planService.getTemplate(templateId);
+            assertThat(template.installmentCount())
+                    .as("TPL-004: the template itself is untouched")
+                    .isEqualTo(CanonicalDeal.INSTALLMENT_COUNT);
+            assertThat(template.downPaymentIn(CurrencyCode.EGP))
+                    .isEqualTo(DownPayment.percent(CanonicalDeal.DOWN_PAYMENT_PERCENT));
+        }
+
+        @Test
+        @DisplayName("R-PLAN-4 still holds over terms nobody stored")
+        void overridden_terms_still_decompose() {
+            // Deliberately awkward: 7% down against 2,850,000 is 199,500.00, and 13 rows
+            // do not divide the remainder evenly. If an override took any path other than
+            // the generator, this is where the pennies would go missing.
+            Deal deal = dealService.addDiscount(draft().id(),
+                    Concession.ofPercent(CanonicalDeal.DISCOUNT_PERCENT), null);
+
+            PlanWithSchedule plan = planService.apply(deal.id(), templateId,
+                    new PlanOverrides(DownPayment.percent(Percentage.of("7")),
+                            Percentage.of("3"), 13, Frequency.MONTHLY, null));
+
+            assertThat(plan.expectedTotal()).isEqualTo(CanonicalDeal.NET_VALUE);
+            assertThat(plan.plan().downPaymentAmount())
+                    .isEqualTo(Money.of("199500.00", CurrencyCode.EGP));
+            assertThat(plan.plan().deliveryPaymentAmount())
+                    .isEqualTo(Money.of("85500.00", CurrencyCode.EGP));
+            assertThat(plan.installments()).hasSize(13 + 2);
+        }
+
+        @Test
+        @DisplayName("a deal may state its terms in full with no template at all")
+        void terms_without_a_template() {
+            Deal deal = dealService.addDiscount(draft().id(),
+                    Concession.ofPercent(CanonicalDeal.DISCOUNT_PERCENT), null);
+
+            PlanWithSchedule plan = planService.apply(deal.id(), null,
+                    new PlanOverrides(DownPayment.percent(CanonicalDeal.DOWN_PAYMENT_PERCENT),
+                            CanonicalDeal.DELIVERY_PERCENT, CanonicalDeal.INSTALLMENT_COUNT,
+                            CanonicalDeal.FREQUENCY, null));
+
+            assertThat(plan.plan().sourceTemplateId())
+                    .as("there was no template to record")
+                    .isNull();
+            assertThat(plan.expectedTotal()).isEqualTo(CanonicalDeal.NET_VALUE);
+        }
+
+        @Test
+        @DisplayName("stated terms take the same path a template's do, to the cent")
+        void an_override_equals_the_same_shape_stored() {
+            Deal fromTemplate = dealService.addDiscount(draft().id(),
+                    Concession.ofPercent(CanonicalDeal.DISCOUNT_PERCENT), null);
+            List<String> viaTemplate =
+                    describe(planService.applyTemplate(fromTemplate.id(), templateId));
+
+            UUID otherUnit = unitService.create(projectId, null, "D-102", "apartment", null,
+                    null, null, CanonicalDeal.LIST_PRICE).id();
+            Deal stated = dealService.addDiscount(
+                    dealService.draft(otherUnit, customerId, null, CanonicalDeal.DEAL_DATE).id(),
+                    Concession.ofPercent(CanonicalDeal.DISCOUNT_PERCENT), null);
+            List<String> viaOverride = describe(planService.apply(stated.id(), null,
+                    new PlanOverrides(DownPayment.percent(CanonicalDeal.DOWN_PAYMENT_PERCENT),
+                            CanonicalDeal.DELIVERY_PERCENT, CanonicalDeal.INSTALLMENT_COUNT,
+                            CanonicalDeal.FREQUENCY, null)));
+
+            // Every row's sequence, kind, date and amount. An override that reached the
+            // generator by a different route could still total correctly while putting the
+            // rounding remainder somewhere else, and that is the failure this catches.
+            assertThat(viaOverride).containsExactlyElementsOf(viaTemplate);
+        }
+
+        @Test
+        @DisplayName("with no template, incomplete terms are refused by name")
+        void incomplete_terms_without_a_template() {
+            Deal deal = draft();
+
+            assertThatThrownBy(() -> planService.apply(deal.id(), null,
+                    new PlanOverrides(DownPayment.percent(Percentage.of("10")), null, null,
+                            null, null)))
+                    .isInstanceOf(ApiException.class)
+                    .satisfies(thrown -> {
+                        ApiException failure = (ApiException) thrown;
+                        assertThat(failure.code()).isEqualTo(ErrorCode.VALIDATION_FAILED);
+                        assertThat(failure.getMessage())
+                                .contains("deliveryPaymentPercent", "installmentCount",
+                                        "frequency")
+                                .as("the one term that WAS given is not listed as missing")
+                                .doesNotContain("downPayment,");
+                    });
+            assertThat(planService.planFor(deal.id()))
+                    .as("and nothing was written")
+                    .isEmpty();
+        }
+
+        @Test
+        @DisplayName("with no template, an empty override is refused rather than defaulted")
+        void nothing_stated_and_nothing_to_fall_back_on() {
+            Deal deal = draft();
+            assertCode(() -> planService.apply(deal.id(), null, PlanOverrides.none()),
+                    ErrorCode.VALIDATION_FAILED);
+        }
+
+        @Test
+        @DisplayName("R-INST-8 is pre-activation only")
+        void an_active_deal_cannot_be_overridden() {
+            Deal active = activateCanonicalDeal();
+            assertCode(() -> planService.apply(active.id(), templateId,
+                            new PlanOverrides(null, null, 16, null, null)),
+                    ErrorCode.ILLEGAL_STATE_TRANSITION);
+        }
+
+        @Test
+        @DisplayName("terms that cannot be honoured are refused, not rounded away")
+        void impossible_stated_terms() {
+            Deal deal = draft();
+            assertCode(() -> planService.apply(deal.id(), templateId,
+                            new PlanOverrides(DownPayment.percent(Percentage.of("98")),
+                                    Percentage.of("5"), null, null, null)),
+                    ErrorCode.PLAN_INVARIANT_VIOLATION);
+        }
+
+        @Test
+        @DisplayName("the trail records that the instance diverged, and from what")
+        void divergence_is_audited() {
+            Deal deal = draft();
+            planService.apply(deal.id(), templateId,
+                    new PlanOverrides(null, null, 16, Frequency.MONTHLY, null));
+
+            assertThat(auditEvents.findForTenant(tenant.tenant().id()).stream()
+                    .filter(event -> AuditAction.PAYMENT_PLAN_GENERATED.name()
+                            .equals(event.action()))
+                    .map(event -> String.valueOf(event.reason()))
+                    .toList())
+                    .as("the stored figures cannot answer TPL-004 on their own")
+                    .anySatisfy(reason -> assertThat(reason)
+                            .contains("installmentCount", "frequency")
+                            .doesNotContain("downPayment"));
+        }
+
+        @Test
+        @DisplayName("an archived template cannot be revived by overriding its terms")
+        void archived_templates_stay_archived() {
+            Deal deal = draft();
+            planService.archiveTemplate(templateId);
+
+            assertCode(() -> planService.apply(deal.id(), templateId,
+                            new PlanOverrides(null, null, 16, null, null)),
+                    ErrorCode.BUSINESS_RULE_VIOLATION);
         }
     }
 
