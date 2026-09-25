@@ -1,5 +1,7 @@
 package com.rescrm.finance.schedule;
 
+import com.rescrm.platform.api.CodedEnum;
+
 /**
  * Installment frequencies supported by the payment-plan engine (doc 17, rule R-INST-5).
  *
@@ -11,17 +13,31 @@ package com.rescrm.finance.schedule;
  * plans are predominantly monthly or quarterly, with semi-annual and annual also in use.
  * Custom/irregular frequencies are a Phase 2 concern and are deliberately absent.
  */
-public enum Frequency {
+public enum Frequency implements CodedEnum {
 
-    MONTHLY(1),
-    QUARTERLY(3),
-    SEMI_ANNUAL(6),
-    ANNUAL(12);
+    MONTHLY(1, "monthly"),
+    QUARTERLY(3, "quarterly"),
+    SEMI_ANNUAL(6, "semi_annual"),
+    ANNUAL(12, "annual");
 
     private final int monthsBetweenDueDates;
+    private final String code;
 
-    Frequency(int monthsBetweenDueDates) {
+    Frequency(int monthsBetweenDueDates, String code) {
         this.monthsBetweenDueDates = monthsBetweenDueDates;
+        this.code = code;
+    }
+
+    /**
+     * The spelling this frequency takes in {@code customer_payment_plans.frequency} and on
+     * the wire. {@link CodedEnum} is a {@code platform.api} interface with no framework
+     * dependency of its own, so implementing it here costs this package none of the
+     * independence the architecture rule protects — and it is what lets a request body carry
+     * {@code "quarterly"} rather than {@code "QUARTERLY"}.
+     */
+    @Override
+    public String code() {
+        return code;
     }
 
     public int monthsBetweenDueDates() {

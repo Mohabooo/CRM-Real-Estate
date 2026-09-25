@@ -1,6 +1,5 @@
 package com.rescrm.inventory.domain;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
 import com.rescrm.platform.api.CodedEnum;
 
 import java.util.Set;
@@ -39,11 +38,11 @@ public enum ProjectStatus implements CodedEnum {
     /**
      * Accepts the wire code, and the Java name as a fallback.
      *
-     * <p>{@code @JsonCreator} so a request body may send {@code "draft"} — the value every
-     * response carries — rather than only {@code "DRAFT"}. A client that echoes back a value
-     * it was given should not get a 400 for it.
+     * <p>A client that echoes back a value it was given should not get a 400 for it, so the
+     * code is what a request carries and the name is only a fallback. Deserialization goes
+     * through {@code CodedEnumModule}, which does this for every {@code CodedEnum} rather
+     * than one annotation at a time.
      */
-    @JsonCreator
     public static ProjectStatus fromCode(String code) {
         for (ProjectStatus status : values()) {
             if (status.code.equals(code)) {

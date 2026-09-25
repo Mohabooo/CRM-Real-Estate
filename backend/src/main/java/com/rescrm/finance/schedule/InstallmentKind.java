@@ -2,8 +2,6 @@ package com.rescrm.finance.schedule;
 
 import com.rescrm.platform.api.CodedEnum;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-
 /**
  * What a row in a schedule is for (doc 22, {@code installments.kind}).
  *
@@ -33,7 +31,6 @@ public enum InstallmentKind implements CodedEnum {
         return code;
     }
 
-    @JsonCreator
     public static InstallmentKind fromCode(String code) {
         for (InstallmentKind kind : values()) {
             if (kind.code.equals(code) || kind.name().equalsIgnoreCase(code)) {

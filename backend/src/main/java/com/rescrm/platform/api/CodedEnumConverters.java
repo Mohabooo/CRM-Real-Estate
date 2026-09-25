@@ -1,5 +1,6 @@
 package com.rescrm.platform.api;
 
+import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.convert.converter.Converter;
 import org.springframework.core.convert.converter.ConverterFactory;
@@ -25,6 +26,17 @@ public class CodedEnumConverters implements WebMvcConfigurer {
     @Override
     public void addFormatters(FormatterRegistry registry) {
         registry.addConverterFactory(new CodedEnumConverterFactory());
+    }
+
+    /**
+     * The same leniency for request bodies.
+     *
+     * <p>A parameter and a body field naming the same enum should not disagree about which
+     * spellings are acceptable, so the two mechanisms are registered together.
+     */
+    @Bean
+    public CodedEnumModule codedEnumModule() {
+        return new CodedEnumModule();
     }
 
     /**
