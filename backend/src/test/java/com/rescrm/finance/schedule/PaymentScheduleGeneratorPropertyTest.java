@@ -55,7 +55,7 @@ class PaymentScheduleGeneratorPropertyTest {
                 net,
                 DownPayment.percent(Percentage.of(String.valueOf(downPercent))),
                 Percentage.of(String.valueOf(deliveryPercent)),
-                installmentCount, frequency, DEAL_DATE, 30, Optional.empty()));
+                installmentCount, frequency, DEAL_DATE, Optional.of(30), Optional.empty()));
 
         assertThat(schedule.total())
                 .as("net=%s down=%d%% delivery=%d%% count=%d %s",
@@ -113,14 +113,23 @@ class PaymentScheduleGeneratorPropertyTest {
     void due_dates_never_go_backwards(
             @ForAll @IntRange(min = 1, max = 120) int installmentCount,
             @ForAll Frequency frequency,
-            @ForAll @IntRange(min = 0, max = 365) int offsetDays) {
+            @ForAll @IntRange(min = 0, max = 365) int offsetDays,
+            @ForAll boolean offsetIsConfigured) {
 
         // FIN-027: strictly ascending, for any frequency and count. Asserted over the whole
         // schedule including the down payment, since that is the order a customer reads.
+        //
+        // Both readings of the offset are generated. A configured one is a day count taken
+        // literally; an absent one means the documented default of one frequency interval,
+        // which anchors on the deal date instead. They produce different schedules, so a
+        // property that only ever saw one of them would leave the other unexercised.
+        Optional<Integer> offset =
+                offsetIsConfigured ? Optional.of(offsetDays) : Optional.empty();
+
         PaymentSchedule schedule = PaymentScheduleGenerator.generate(new PlanTerms(
                 cents(10_000_000_00L),
                 DownPayment.percent(Percentage.of("10")), Percentage.of("5"),
-                installmentCount, frequency, DEAL_DATE, offsetDays, Optional.empty()));
+                installmentCount, frequency, DEAL_DATE, offset, Optional.empty()));
 
         List<PaymentSchedule.Row> rows = schedule.rows();
         for (int i = 1; i < rows.size(); i++) {
