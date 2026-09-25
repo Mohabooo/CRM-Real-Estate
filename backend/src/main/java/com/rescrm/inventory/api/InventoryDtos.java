@@ -6,7 +6,6 @@ import com.rescrm.inventory.domain.Project;
 import com.rescrm.inventory.domain.ProjectStatus;
 import com.rescrm.inventory.domain.Unit;
 import com.rescrm.inventory.domain.UnitStatus;
-import com.rescrm.inventory.service.UnitClaim;
 import com.rescrm.inventory.service.UnitImportResult;
 import com.rescrm.platform.audit.AuditEvent;
 import jakarta.validation.constraints.NotBlank;
@@ -164,16 +163,6 @@ public final class InventoryDtos {
     public record BlockUnitRequest(@NotBlank @Size(max = 500) String reason) {
     }
 
-    /**
-     * The answer to a claim attempt (E3-S5). A loss is reported as 409 with the unit's current
-     * status, which is what doc 23 specifies for a unit that is already held.
-     */
-    public record UnitClaimResponse(UUID unitId, boolean claimed, String statusNow) {
-
-        public static UnitClaimResponse from(UnitClaim claim) {
-            return new UnitClaimResponse(claim.unitId(), claim.won(), claim.statusNow().code());
-        }
-    }
 
     public record UnitHistoryEntry(UUID id, String action, String before, String after,
                                    String reason, UUID actorUserId, OffsetDateTime at) {

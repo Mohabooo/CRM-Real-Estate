@@ -3,17 +3,14 @@ package com.rescrm.inventory.api;
 import com.rescrm.inventory.api.InventoryDtos.BlockUnitRequest;
 import com.rescrm.inventory.api.InventoryDtos.CreateUnitRequest;
 import com.rescrm.inventory.api.InventoryDtos.PageResponse;
-import com.rescrm.inventory.api.InventoryDtos.UnitClaimResponse;
 import com.rescrm.inventory.api.InventoryDtos.UnitHistoryEntry;
 import com.rescrm.inventory.api.InventoryDtos.UnitResponse;
 import com.rescrm.inventory.api.InventoryDtos.UpdateUnitRequest;
 import com.rescrm.inventory.domain.UnitStatus;
-import com.rescrm.inventory.service.UnitClaim;
 import com.rescrm.inventory.service.UnitService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -119,29 +116,21 @@ public class UnitController {
 
     // ------------------------------------------------------------------ claims
 
-    /**
-     * E3-S5, over HTTP. Losing the race is a 409 carrying the unit's current status, which is
-     * what doc 23 specifies for a unit that is already held — not a 500, and not a 200 with a
-     * quiet {@code claimed: false} that a careless client would treat as success.
-     *
-     * <p>These endpoints exist now so the guard is reachable and testable in Epic 3. Once
-     * reservations and deals arrive they will claim units through the service directly, inside
-     * their own transactions, and these will likely become internal.
-     */
-    @PostMapping("/{id}/claim-for-reservation")
-    public ResponseEntity<UnitClaimResponse> claimForReservation(@PathVariable UUID id) {
-        return respond(units.claimForReservation(id));
-    }
-
-    @PostMapping("/{id}/claim-for-sale")
-    public ResponseEntity<UnitClaimResponse> claimForSale(@PathVariable UUID id) {
-        return respond(units.claimForSale(id));
-    }
-
-    private static ResponseEntity<UnitClaimResponse> respond(UnitClaim claim) {
-        UnitClaimResponse body = UnitClaimResponse.from(claim);
-        return claim.won()
-                ? ResponseEntity.ok(body)
-                : ResponseEntity.status(HttpStatus.CONFLICT).body(body);
-    }
+    // There are none, deliberately.
+    //
+    // Epic 3 exposed POST /units/{id}/claim-for-reservation and /claim-for-sale so the
+    // double-sell guard was reachable before anything used it, with a comment saying they
+    // would become internal once reservations and deals arrived. They have. A reservation
+    // claims its unit when it is confirmed and a deal claims its unit inside the activation
+    // transaction, both through UnitService rather than over HTTP.
+    //
+    // Leaving them would not have been harmless. Doc 23 states that unit status is never set
+    // directly by a client and is a consequence of reservation and deal actions, and neither
+    // endpoint appears in its map. A POST to claim-for-sale marks a unit sold with no deal
+    // behind it — the unit leaves inventory, no schedule exists, no commission will ever be
+    // owed, and C1 cannot help because it constrains deals and there is no deal. That is
+    // precisely the state the activation transaction is built to make impossible.
+    //
+    // Blocking and unblocking stay, because doc 23 lists them: they are operations' decision
+    // about a unit, not a side effect of a sale.
 }
