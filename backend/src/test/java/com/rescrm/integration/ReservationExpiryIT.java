@@ -13,6 +13,7 @@ import com.rescrm.platform.money.CurrencyCode;
 import com.rescrm.platform.money.Money;
 import com.rescrm.platform.security.Role;
 import com.rescrm.platform.tenancy.PlatformTenantRegistry;
+import com.rescrm.platform.tenancy.TenantContext;
 import com.rescrm.reservations.domain.Reservation;
 import com.rescrm.reservations.domain.ReservationStatus;
 import com.rescrm.reservations.service.ExpirySweepResult;
@@ -108,12 +109,17 @@ class ReservationExpiryIT extends AbstractPostgresIT {
      * a row the application could never produce proves nothing about the application. What
      * this writes is an ordinary hold placed eight days ago whose week has run out.
      */
-    private void makeOverdue(UUID reservationId) {
-        jdbc.update("UPDATE reservations SET "
+    private void makeOverdue(Fixture owner, Reservation held) {
+        // Under that hold's OWN tenant: this is fixture SQL like any other write, and
+        // row-level security applies to it exactly as it applies to the application. The
+        // tenant has to be the reservation's, not a fixed one — the sweep test backdates a
+        // second tenant's hold as well.
+        TenantContext.callAs(owner.tenant().tenant().id(),
+                () -> jdbc.update("UPDATE reservations SET "
                 + "reserved_at = now() - interval '8 days', "
                 + "expires_at = now() - interval '1 hour', "
                 + "original_expires_at = now() - interval '1 hour' "
-                + "WHERE id = ?", reservationId);
+                        + "WHERE id = ?", held.id()));
     }
 
     private Reservation confirmedHold(Fixture f) {
@@ -128,7 +134,7 @@ class ReservationExpiryIT extends AbstractPostgresIT {
     void the_unit_comes_back() {
         Reservation held = confirmedHold(fixture);
         assertThat(unitService.get(fixture.unitId()).status()).isEqualTo(UnitStatus.RESERVED);
-        makeOverdue(held.id());
+        makeOverdue(fixture, held);
 
         ExpirySweepResult result = sweep.sweep();
 
@@ -148,7 +154,7 @@ class ReservationExpiryIT extends AbstractPostgresIT {
         signIn(fixture);
         Reservation held = reservationService.place(fixture.unitId(), fixture.leadId(), null,
                 null, null, false);
-        makeOverdue(held.id());
+        makeOverdue(fixture, held);
 
         ExpirySweepResult result = sweep.sweep();
 
@@ -179,7 +185,7 @@ class ReservationExpiryIT extends AbstractPostgresIT {
     @DisplayName("the expiry records no actor, because nobody asked for it")
     void the_trail_records_a_system_actor() {
         Reservation held = confirmedHold(fixture);
-        makeOverdue(held.id());
+        makeOverdue(fixture, held);
 
         sweep.sweep();
 
@@ -204,8 +210,8 @@ class ReservationExpiryIT extends AbstractPostgresIT {
         Fixture other = newTenantWithAUnit("Other");
         Reservation mine = confirmedHold(fixture);
         Reservation theirs = confirmedHold(other);
-        makeOverdue(mine.id());
-        makeOverdue(theirs.id());
+        makeOverdue(fixture, mine);
+        makeOverdue(other, theirs);
 
         ExpirySweepResult result = sweep.sweep();
 
@@ -231,7 +237,7 @@ class ReservationExpiryIT extends AbstractPostgresIT {
     @DisplayName("sweeping twice does not expire the same hold twice")
     void the_sweep_is_idempotent() {
         Reservation held = confirmedHold(fixture);
-        makeOverdue(held.id());
+        makeOverdue(fixture, held);
 
         sweep.sweep();
         ExpirySweepResult second = sweep.sweep();

@@ -1,6 +1,7 @@
 package com.rescrm.integration;
 
 import com.rescrm.identity.service.TenantProvisioningService;
+import com.rescrm.platform.tenancy.TenantContext;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -30,8 +31,6 @@ import static org.assertj.core.api.Assertions.assertThat;
 @DisplayName("Row-level security")
 class RlsIsolationIT extends AbstractPostgresIT {
 
-    private static final String PROBE_ROLE = "crm_rls_probe";
-
     @Autowired
     private JdbcTemplate jdbc;
 
@@ -50,28 +49,28 @@ class RlsIsolationIT extends AbstractPostgresIT {
         return new TwoTenants(a.tenant().id(), b.tenant().id(), b.initialBranch().id());
     }
 
-    /** Runs the body on one connection, as the non-superuser probe role. */
+    /**
+     * Runs the body on one connection, bound to one tenant.
+     *
+     * <p>It used to switch role as well, creating an unprivileged one on the way in, because
+     * the suite connected as a superuser and a superuser bypasses row-level security — so
+     * without the switch none of the assertions below meant anything. {@code
+     * AbstractPostgresIT} now connects as an unprivileged role to begin with, so all that is
+     * left to do here is bind the tenant. {@link UnprivilegedConnectionIT} is what keeps the
+     * premise true.
+     *
+     * <p>One connection still matters: the tenant binding is a session setting, so the body
+     * has to run on the connection it was set on.
+     */
     private <T> T asUnprivilegedRole(UUID tenantId, SqlBody<T> body) {
         return jdbc.execute((ConnectionCallback<T>) connection -> {
             try (Statement setup = connection.createStatement()) {
-                setup.execute("""
-                        DO $$ BEGIN
-                          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '%s') THEN
-                            CREATE ROLE %s NOSUPERUSER NOINHERIT;
-                          END IF;
-                        END $$;""".formatted(PROBE_ROLE, PROBE_ROLE));
-                setup.execute("GRANT USAGE ON SCHEMA public TO " + PROBE_ROLE);
-                setup.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, branches, users, "
-                        + "invitations, audit_events, leads, customers, activities, "
-                        + "developers, projects, phases, units TO " + PROBE_ROLE);
-                setup.execute("SET ROLE " + PROBE_ROLE);
                 setup.execute("SET app.current_tenant_id = '" + tenantId + "'");
             }
             try {
                 return body.run(connection);
             } finally {
                 try (Statement reset = connection.createStatement()) {
-                    reset.execute("RESET ROLE");
                     reset.execute("RESET app.current_tenant_id");
                 }
             }
@@ -92,7 +91,7 @@ class RlsIsolationIT extends AbstractPostgresIT {
     }
 
     @Test
-    @DisplayName("the probe role really is not a superuser, or nothing below proves anything")
+    @DisplayName("the connection really is not a superuser, or nothing below proves anything")
     void probe_role_is_not_superuser() {
         var tenants = provisionTwo();
         boolean isSuper = asUnprivilegedRole(tenants.a(), connection -> {
@@ -144,8 +143,8 @@ class RlsIsolationIT extends AbstractPostgresIT {
         });
         assertThat(updated).isZero();
 
-        String nameInB = jdbc.queryForObject(
-                "SELECT name FROM branches WHERE id = ?", String.class, tenants.branchOfB());
+        String nameInB = TenantContext.callAs(tenants.b(), () -> jdbc.queryForObject(
+                "SELECT name FROM branches WHERE id = ?", String.class, tenants.branchOfB()));
         assertThat(nameInB).isEqualTo("B");
     }
 
@@ -161,8 +160,8 @@ class RlsIsolationIT extends AbstractPostgresIT {
         });
         assertThat(deleted).isZero();
 
-        Long stillThere = jdbc.queryForObject(
-                "SELECT count(*) FROM branches WHERE id = ?", Long.class, tenants.branchOfB());
+        Long stillThere = TenantContext.callAs(tenants.b(), () -> jdbc.queryForObject(
+                "SELECT count(*) FROM branches WHERE id = ?", Long.class, tenants.branchOfB()));
         assertThat(stillThere).isEqualTo(1);
     }
 
@@ -219,8 +218,9 @@ class RlsIsolationIT extends AbstractPostgresIT {
             }
         });
         assertThat(updated).isZero();
-        assertThat(jdbc.queryForObject("SELECT name FROM leads WHERE id = ?", String.class,
-                leadOfB)).isEqualTo("Lead in B");
+        assertThat(TenantContext.callAs(tenants.b(), () -> jdbc.queryForObject(
+                "SELECT name FROM leads WHERE id = ?", String.class, leadOfB)))
+                .isEqualTo("Lead in B");
 
         int deleted = asUnprivilegedRole(tenants.a(), connection -> {
             try (Statement statement = connection.createStatement()) {
@@ -229,8 +229,9 @@ class RlsIsolationIT extends AbstractPostgresIT {
             }
         });
         assertThat(deleted).isZero();
-        assertThat(jdbc.queryForObject("SELECT count(*) FROM customers WHERE id = ?", Long.class,
-                customerOfB)).isEqualTo(1);
+        assertThat(TenantContext.callAs(tenants.b(), () -> jdbc.queryForObject(
+                "SELECT count(*) FROM customers WHERE id = ?", Long.class, customerOfB)))
+                .isEqualTo(1);
     }
 
     @Test
@@ -252,23 +253,24 @@ class RlsIsolationIT extends AbstractPostgresIT {
     }
 
     private UUID insertLead(UUID tenantId, String name, String phone) {
-        return jdbc.queryForObject(
+        return TenantContext.callAs(tenantId, () -> jdbc.queryForObject(
                 "INSERT INTO leads (tenant_id, name, phone, phone_normalized, stage, status) "
                         + "VALUES (?, ?, ?, ?, 'new', 'active') RETURNING id",
-                UUID.class, tenantId, name, phone, phone);
+                UUID.class, tenantId, name, phone, phone));
     }
 
     private UUID insertCustomer(UUID tenantId, String name, String phone) {
-        return jdbc.queryForObject(
+        return TenantContext.callAs(tenantId, () -> jdbc.queryForObject(
                 "INSERT INTO customers (tenant_id, name_en, phone, phone_normalized, status) "
                         + "VALUES (?, ?, ?, ?, 'active') RETURNING id",
-                UUID.class, tenantId, name, phone, phone);
+                UUID.class, tenantId, name, phone, phone));
     }
 
     private void insertActivity(UUID tenantId, UUID leadId) {
-        jdbc.update("INSERT INTO activities (tenant_id, subject_type, subject_id, type, body, "
+        TenantContext.callAs(tenantId, () -> jdbc.update(
+                "INSERT INTO activities (tenant_id, subject_type, subject_id, type, body, "
                         + "occurred_at) VALUES (?, 'Lead', ?, 'call', 'spoke', now())",
-                tenantId, leadId);
+                tenantId, leadId));
     }
 
     @Test
@@ -306,8 +308,9 @@ class RlsIsolationIT extends AbstractPostgresIT {
             }
         });
         assertThat(updated).isZero();
-        assertThat(jdbc.queryForObject("SELECT status FROM units WHERE id = ?", String.class,
-                unitOfB)).isEqualTo("available");
+        assertThat(TenantContext.callAs(tenants.b(), () -> jdbc.queryForObject(
+                "SELECT status FROM units WHERE id = ?", String.class, unitOfB)))
+                .isEqualTo("available");
     }
 
     @Test
@@ -329,23 +332,23 @@ class RlsIsolationIT extends AbstractPostgresIT {
     }
 
     private UUID insertProject(UUID tenantId, String name) {
-        return jdbc.queryForObject(
+        return TenantContext.callAs(tenantId, () -> jdbc.queryForObject(
                 "INSERT INTO projects (tenant_id, commercial_model, name_en, status) "
                         + "VALUES (?, 'own_inventory', ?, 'active') RETURNING id",
-                UUID.class, tenantId, name);
+                UUID.class, tenantId, name));
     }
 
     private UUID insertUnit(UUID tenantId, UUID projectId, String code) {
-        return jdbc.queryForObject(
+        return TenantContext.callAs(tenantId, () -> jdbc.queryForObject(
                 "INSERT INTO units (tenant_id, project_id, code, list_price, status) "
                         + "VALUES (?, ?, ?, 2500000, 'available') RETURNING id",
-                UUID.class, tenantId, projectId, code);
+                UUID.class, tenantId, projectId, code));
     }
 
     private UUID insertDeveloper(UUID tenantId, String name) {
-        return jdbc.queryForObject(
+        return TenantContext.callAs(tenantId, () -> jdbc.queryForObject(
                 "INSERT INTO developers (tenant_id, name) VALUES (?, ?) RETURNING id",
-                UUID.class, tenantId, name);
+                UUID.class, tenantId, name));
     }
 
     @Test
@@ -354,15 +357,6 @@ class RlsIsolationIT extends AbstractPostgresIT {
         provisionTwo();
         long visible = jdbc.execute((ConnectionCallback<Long>) connection -> {
             try (Statement setup = connection.createStatement()) {
-                setup.execute("""
-                        DO $$ BEGIN
-                          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '%s') THEN
-                            CREATE ROLE %s NOSUPERUSER NOINHERIT;
-                          END IF;
-                        END $$;""".formatted(PROBE_ROLE, PROBE_ROLE));
-                setup.execute("GRANT USAGE ON SCHEMA public TO " + PROBE_ROLE);
-                setup.execute("GRANT SELECT ON branches TO " + PROBE_ROLE);
-                setup.execute("SET ROLE " + PROBE_ROLE);
                 setup.execute("SET app.current_tenant_id = ''");
             }
             try {
@@ -370,7 +364,7 @@ class RlsIsolationIT extends AbstractPostgresIT {
                 return count(connection, "SELECT count(*) FROM branches");
             } finally {
                 try (Statement reset = connection.createStatement()) {
-                    reset.execute("RESET ROLE");
+                    reset.execute("RESET app.current_tenant_id");
                 }
             }
         });

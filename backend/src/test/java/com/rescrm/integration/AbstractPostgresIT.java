@@ -41,12 +41,47 @@ import java.util.UUID;
  * </ol>
  *
  * <p>Every one of the three is a real PostgreSQL, so the guarantee above holds in all cases.
+ *
+ * <h2>Two roles, on purpose</h2>
+ *
+ * <p>Flyway migrates as the owner; the application connects as {@value #APP_ROLE}, which owns
+ * nothing and is not a superuser. That split exists because the alternative hid four
+ * production bugs across four epics.
+ *
+ * <p>A superuser bypasses row-level security entirely. So does a table's owner unless the
+ * policy is FORCEd — and these are FORCEd, which is why that half held. The superuser half
+ * did not: a query that returned nothing in production returned everything here, and an
+ * insert that row-level security refused in production succeeded here. The reservation
+ * expiry sweep, tenant provisioning and invitation acceptance were all broken that way while
+ * the suite stayed green.
+ *
+ * <p>Privileges reach the application role through {@code ALTER DEFAULT PRIVILEGES}, set
+ * before any table exists, so every table Flyway creates afterwards is covered without a
+ * grant step that somebody has to remember to update. Verified against PostgreSQL 16: all
+ * fourteen tables, none missing.
+ *
+ * <p>One consequence worth knowing when a test fails oddly. Fixture SQL run straight through
+ * {@code JdbcTemplate} is now subject to the same policies as everything else, so an
+ * {@code UPDATE} with no tenant established quietly matches no rows rather than doing what it
+ * used to. Wrap such setup in {@code TenantContext.callAs(tenantId, ...)}, which is what the
+ * application itself does.
  */
 @SpringBootTest
 @ActiveProfiles("test")
 public abstract class AbstractPostgresIT {
 
     private static final Logger log = LoggerFactory.getLogger(AbstractPostgresIT.class);
+
+    /**
+     * The role the application connects as: owns nothing, and is not a superuser.
+     *
+     * <p>Cluster-wide and shared by every test class, created once if it is not already
+     * there. The password is fixed and worthless — it protects a database that exists for
+     * the length of a build.
+     */
+    static final String APP_ROLE = "crm_app";
+
+    private static final String APP_PASSWORD = "crm_app";
 
     private static final String URL_KEY = "crm.it.db.url";
     private static final String USERNAME_KEY = "crm.it.db.username";
@@ -70,13 +105,72 @@ public abstract class AbstractPostgresIT {
 
     private static final Coordinates DATABASE = resolve();
 
+    /** The same database, reached as the unprivileged application role. */
+    private static final Coordinates APPLICATION = prepareApplicationRole(DATABASE);
+
     private record Coordinates(String url, String username, String password) { }
 
     @DynamicPropertySource
     static void datasourceProperties(DynamicPropertyRegistry registry) {
-        registry.add("spring.datasource.url", DATABASE::url);
-        registry.add("spring.datasource.username", DATABASE::username);
-        registry.add("spring.datasource.password", DATABASE::password);
+        // Flyway needs to create tables, triggers and policies, so it keeps the owner's
+        // credentials. Nothing else uses them.
+        registry.add("spring.flyway.url", DATABASE::url);
+        registry.add("spring.flyway.user", DATABASE::username);
+        registry.add("spring.flyway.password", DATABASE::password);
+
+        // Everything the application does goes through a role that row-level security
+        // actually applies to.
+        registry.add("spring.datasource.url", APPLICATION::url);
+        registry.add("spring.datasource.username", APPLICATION::username);
+        registry.add("spring.datasource.password", APPLICATION::password);
+    }
+
+    /**
+     * Creates the application role and arranges for it to be granted what it needs.
+     *
+     * <p>Runs as the owner, before the Spring context and therefore before Flyway. The
+     * ordering is the point: {@code ALTER DEFAULT PRIVILEGES} applies to tables created
+     * <em>after</em> it, which is every table in the schema. Granting on ALL TABLES instead
+     * would need to happen after the migration, which means a callback and a step somebody
+     * can forget; this needs neither.
+     *
+     * <p>The explicit grants that follow cover a database that already had tables when this
+     * ran — a developer pointing {@code crm.it.db.url} at one they keep around.
+     */
+    private static Coordinates prepareApplicationRole(Coordinates owner) {
+        String setup = """
+                DO $$ BEGIN
+                  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '%s') THEN
+                    CREATE ROLE %s LOGIN PASSWORD '%s' NOSUPERUSER NOCREATEDB NOCREATEROLE;
+                  END IF;
+                END $$;
+                GRANT USAGE ON SCHEMA public TO %s;
+                ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                    GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO %s;
+                ALTER DEFAULT PRIVILEGES IN SCHEMA public
+                    GRANT USAGE, SELECT ON SEQUENCES TO %s;
+                GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO %s;
+                GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO %s;
+                """.formatted(APP_ROLE, APP_ROLE, APP_PASSWORD, APP_ROLE, APP_ROLE,
+                        APP_ROLE, APP_ROLE, APP_ROLE);
+
+        try (Connection connection = DriverManager.getConnection(
+                     owner.url(), owner.username(), owner.password());
+             Statement statement = connection.createStatement()) {
+            statement.execute(setup);
+        } catch (SQLException e) {
+            throw new IllegalStateException("""
+                    Could not create the unprivileged role the integration tests connect as.
+
+                    The tests deliberately do not run as a superuser: one bypasses row-level
+                    security entirely, and that has already hidden production bugs. Creating
+                    the role needs a connecting user that may CREATE ROLE.
+
+                    If you are pointing crm.it.db.url at your own PostgreSQL, use an account
+                    that can. Docker and the embedded server both provide one.
+                    """, e);
+        }
+        return new Coordinates(owner.url(), APP_ROLE, APP_PASSWORD);
     }
 
     private static Coordinates resolve() {

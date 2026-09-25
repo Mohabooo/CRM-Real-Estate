@@ -19,7 +19,6 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.UUID;
-import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -32,16 +31,18 @@ import static org.assertj.core.api.Assertions.assertThat;
  * therefore reads through a narrow policy V6 adds, and each one is invisible to the ordinary
  * isolation policy.
  *
- * <p>This class exists because the ordinary suite cannot see the difference. It connects as
+ * <p>This class exists because the suite could not once see the difference: it connected as
  * a superuser, and a superuser bypasses row-level security entirely, so a query that returns
- * nothing in production returns everything here. Invitation acceptance was broken that way
- * for four epics and every test stayed green. The assertions below therefore run under
- * {@code SET ROLE}, on the transaction-bound connection the lookups will use.
+ * nothing in production returned everything here. Invitation acceptance was broken that way
+ * for four epics and every test stayed green.
+ *
+ * <p>{@code AbstractPostgresIT} now connects as an unprivileged role, so these lookups are
+ * exercised with the policies in force and need no scaffolding of their own.
+ * {@link UnprivilegedConnectionIT} guarantees that property for the whole package.
  */
 @DisplayName("Lookups that run before a tenant is established")
 class PreTenantLookupIT extends AbstractPostgresIT {
 
-    private static final String PROBE_ROLE = "crm_pretenant_probe";
     private static final String PASSWORD = "a-long-enough-password";
 
     @Autowired private TenantProvisioningService provisioning;
@@ -71,18 +72,9 @@ class PreTenantLookupIT extends AbstractPostgresIT {
     }
 
     @Test
-    @DisplayName("the probe role is not a superuser, or nothing else here proves anything")
-    void probe_role_is_not_a_superuser() {
-        Boolean superuser = asProbeRole(() -> jdbc.queryForObject(
-                "SELECT rolsuper FROM pg_roles WHERE rolname = current_user", Boolean.class));
-
-        assertThat(superuser).isFalse();
-    }
-
-    @Test
     @DisplayName("a company key resolves to its tenant")
     void slug_resolves() {
-        var found = asProbeRole(() -> lookup.activeTenantBySlug(slug));
+        var found = lookup.activeTenantBySlug(slug);
 
         assertThat(found)
                 .as("an empty result here is a login form that refuses every correct password")
@@ -92,7 +84,7 @@ class PreTenantLookupIT extends AbstractPostgresIT {
     @Test
     @DisplayName("an unknown company key resolves to nothing")
     void unknown_slug_resolves_to_nothing() {
-        assertThat(asProbeRole(() -> lookup.activeTenantBySlug("no-such-company"))).isEmpty();
+        assertThat(lookup.activeTenantBySlug("no-such-company")).isEmpty();
     }
 
     @Test
@@ -100,8 +92,7 @@ class PreTenantLookupIT extends AbstractPostgresIT {
     void session_resolves() {
         SignedIn signedIn = authentication.signIn(slug, ownerEmail, PASSWORD);
 
-        var found = asProbeRole(() ->
-                lookup.liveSessionByTokenHash(RandomTokens.hash(signedIn.rawToken())));
+        var found = lookup.liveSessionByTokenHash(RandomTokens.hash(signedIn.rawToken()));
 
         assertThat(found).isPresent();
         assertThat(found.get().tenantId()).isEqualTo(tenant.tenant().id());
@@ -114,8 +105,7 @@ class PreTenantLookupIT extends AbstractPostgresIT {
         SignedIn signedIn = authentication.signIn(slug, ownerEmail, PASSWORD);
         authentication.signOut(signedIn.rawToken());
 
-        var found = asProbeRole(() ->
-                lookup.liveSessionByTokenHash(RandomTokens.hash(signedIn.rawToken())));
+        var found = lookup.liveSessionByTokenHash(RandomTokens.hash(signedIn.rawToken()));
 
         assertThat(found)
                 .as("the policy hides revoked sessions, so a bug in the service cannot revive one")
@@ -139,8 +129,7 @@ class PreTenantLookupIT extends AbstractPostgresIT {
                     }
                 });
 
-        var found = asProbeRole(() -> lookup.pendingInvitationByTokenHash(
-                RandomTokens.hash(issued.rawToken())));
+        var found = lookup.pendingInvitationByTokenHash(RandomTokens.hash(issued.rawToken()));
 
         assertThat(found)
                 .as("an empty result here is an invitation flow that refuses every valid token")
@@ -167,8 +156,7 @@ class PreTenantLookupIT extends AbstractPostgresIT {
                 });
         invitations.accept(issued.rawToken(), "Agent", PASSWORD);
 
-        var found = asProbeRole(() -> lookup.pendingInvitationByTokenHash(
-                RandomTokens.hash(issued.rawToken())));
+        var found = lookup.pendingInvitationByTokenHash(RandomTokens.hash(issued.rawToken()));
 
         assertThat(found).isEmpty();
     }
@@ -176,43 +164,19 @@ class PreTenantLookupIT extends AbstractPostgresIT {
     @Test
     @DisplayName("the exemption opens nothing else: units and leads stay invisible")
     void the_exemption_is_narrow() {
-        Long visible = asProbeRole(() -> {
-            jdbc.execute("SET app.platform_task = 'authentication'");
-            jdbc.execute("SET app.current_tenant_id = ''");
-            return jdbc.queryForObject(
-                    "SELECT (SELECT count(*) FROM units) + (SELECT count(*) FROM leads)",
-                    Long.class);
-        });
-
-        assertThat(visible).isZero();
-    }
-
-    /**
-     * Runs the body inside a transaction, as the unprivileged probe role.
-     *
-     * <p>The transaction binds one connection for the whole body, so the {@code SET ROLE}
-     * below and the lookup's own query land on the same session. Without it the lookup would
-     * take a fresh connection from the pool and run as the superuser again — which is exactly
-     * the blind spot this class exists to close.
-     */
-    private <T> T asProbeRole(Supplier<T> body) {
-        return transactions.execute(status -> {
+        // One transaction so the SET and the SELECT share a connection.
+        Long visible = transactions.execute(status -> {
             try {
-                jdbc.execute("""
-                        DO $$ BEGIN
-                          IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '%s') THEN
-                            CREATE ROLE %s NOSUPERUSER NOINHERIT;
-                          END IF;
-                        END $$;""".formatted(PROBE_ROLE, PROBE_ROLE));
-                jdbc.execute("GRANT USAGE ON SCHEMA public TO " + PROBE_ROLE);
-                jdbc.execute("GRANT SELECT ON tenants, sessions, invitations, users, units, "
-                        + "leads TO " + PROBE_ROLE);
-                jdbc.execute("SET ROLE " + PROBE_ROLE);
-                return body.get();
+                jdbc.execute("SET app.platform_task = 'authentication'");
+                jdbc.execute("SET app.current_tenant_id = ''");
+                return jdbc.queryForObject(
+                        "SELECT (SELECT count(*) FROM units) + (SELECT count(*) FROM leads)",
+                        Long.class);
             } finally {
-                jdbc.execute("RESET ROLE");
                 jdbc.execute("SET app.platform_task = ''");
             }
         });
+
+        assertThat(visible).isZero();
     }
 }
