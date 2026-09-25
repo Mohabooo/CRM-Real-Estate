@@ -1,21 +1,17 @@
 package com.rescrm.inventory.repository;
 
 import com.rescrm.inventory.domain.Unit;
-import com.rescrm.platform.money.Money;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.Repository;
 import org.springframework.data.repository.query.Param;
 
-import java.math.BigDecimal;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface UnitRepository extends Repository<Unit, UUID> {
+public interface UnitRepository extends Repository<Unit, UUID>, UnitBrowseQuery {
 
     Unit save(Unit unit);
 
@@ -34,38 +30,14 @@ public interface UnitRepository extends Repository<Unit, UUID> {
     List<Unit> findAllByTenantIdAndIdIn(UUID tenantId, Collection<UUID> ids);
 
     /**
-     * E3-S4: browse and filter across projects and both commercial models in one list.
+     * E3-S4's browse lives in {@link UnitBrowseQuery}, built from the filters supplied.
      *
-     * <p>Every filter is optional and null means "no filter". {@code statuses} is a required
-     * set rather than an optional one, because the default view excludes sold and blocked
-     * units and an omitted status filter that quietly meant "everything" would put sold
-     * units back in front of agents — the exact mistake the acceptance criterion names.
+     * <p>It used to be a {@code @Query} string in which every optional filter read
+     * {@code (:projectId IS NULL OR u.projectId = :projectId)}. That form can only reach
+     * doc 22 section 6's inventory indexes by re-planning on every execution, and falls back
+     * to a sequential scan under a cached generic plan. The fragment's comment has the
+     * measurements.
      */
-    @Query("SELECT u FROM Unit u WHERE u.tenantId = :tenantId "
-            + "AND u.status IN :statuses "
-            + "AND (:projectId IS NULL OR u.projectId = :projectId) "
-            + "AND (:phaseId IS NULL OR u.phaseId = :phaseId) "
-            // cast(:type as string) is load-bearing, not decoration. With a bare :type
-            // Hibernate has nothing to infer the parameter's SQL type from when the value
-            // is null, binds it as untyped, and PostgreSQL fails to resolve lower(bytea).
-            // The cast states the type, so the null branch is a plain text comparison.
-            // The value arrives already lower-cased from UnitService.browse.
-            + "AND (cast(:type as string) IS NULL OR lower(u.type) = cast(:type as string)) "
-            + "AND (:minPrice IS NULL OR u.listPrice >= :minPrice) "
-            + "AND (:maxPrice IS NULL OR u.listPrice <= :maxPrice) "
-            + "AND (:minArea IS NULL OR u.areaSqm >= :minArea) "
-            + "AND (:maxArea IS NULL OR u.areaSqm <= :maxArea) "
-            + "ORDER BY u.projectId ASC, u.code ASC")
-    Page<Unit> findFiltered(@Param("tenantId") UUID tenantId,
-                            @Param("statuses") Collection<String> statuses,
-                            @Param("projectId") UUID projectId,
-                            @Param("phaseId") UUID phaseId,
-                            @Param("type") String type,
-                            @Param("minPrice") Money minPrice,
-                            @Param("maxPrice") Money maxPrice,
-                            @Param("minArea") BigDecimal minArea,
-                            @Param("maxArea") BigDecimal maxArea,
-                            Pageable pageable);
 
     /**
      * The double-sell guard (E3-S5), expressed as a single conditional statement.

@@ -347,7 +347,7 @@ public class UnitService {
         // because nobody types "Apartment" the same way twice, and doing the folding on the
         // parameter leaves one function call in the SQL instead of two.
         String typeFilter = blankToNull(type);
-        return units.findFiltered(TenantContext.require(), statusCodes, projectId, phaseId,
+        return units.browse(TenantContext.require(), statusCodes, projectId, phaseId,
                 typeFilter == null ? null : typeFilter.toLowerCase(Locale.ROOT),
                 minPrice, maxPrice, minArea, maxArea, pageable);
     }
