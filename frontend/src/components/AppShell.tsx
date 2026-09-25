@@ -20,6 +20,7 @@ const NAV_ITEMS = [
   { path: '/inventory', labelKey: 'nav.inventory' },
   { path: '/holds', labelKey: 'nav.holds' },
   { path: '/deals', labelKey: 'nav.deals' },
+  { path: '/payment-plans', labelKey: 'nav.paymentPlans' },
   { path: '/system', labelKey: 'nav.system' },
 ] as const;
 

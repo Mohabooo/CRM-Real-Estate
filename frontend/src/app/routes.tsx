@@ -6,6 +6,7 @@ import { HomePage } from '@/features/home/HomePage';
 import { InventoryPage } from '@/features/inventory/InventoryPage';
 import { DealPage } from '@/features/deals/DealPage';
 import { DealsPage } from '@/features/deals/DealsPage';
+import { TemplatesPage } from '@/features/deals/TemplatesPage';
 import { HoldsPage } from '@/features/reservations/HoldsPage';
 import { SystemStatusPage } from '@/features/system/SystemStatusPage';
 
@@ -37,6 +38,7 @@ export const router = createBrowserRouter(
             { path: 'holds', element: <HoldsPage /> },
             { path: 'deals', element: <DealsPage /> },
             { path: 'deals/:id', element: <DealPage /> },
+            { path: 'payment-plans', element: <TemplatesPage /> },
             { path: 'about', element: <HomePage /> },
             { path: 'system', element: <SystemStatusPage /> },
             { path: '*', element: <Navigate to="/inventory" replace /> },

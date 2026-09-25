@@ -99,6 +99,22 @@ export interface PaymentPlanTemplate {
   createdAt: string;
 }
 
+/**
+ * A template as the API takes it: exactly one of the two down-payment fields, both decimal
+ * strings, matching the domain's sealed type rather than a kind plus a loose number.
+ */
+export interface TemplateInput {
+  projectId?: string;
+  name: string;
+  shorthandLabel?: string;
+  downPaymentPercent?: string;
+  downPaymentAmount?: string;
+  deliveryPaymentPercent: string;
+  installmentCount: number;
+  frequency: Frequency;
+  firstInstallmentOffsetDays?: number;
+}
+
 export interface DraftDealInput {
   unitId: string;
   customerId: string;
@@ -151,7 +167,21 @@ export const dealsApi = {
   cancel: (id: string, reason: string) =>
     apiClient.post<Deal>(`/api/v1/deals/${id}/cancel`, { reason }),
 
+  /** Every template including archived ones: this is the administration list (E5-S3). */
   templates: () => apiClient.get<PaymentPlanTemplate[]>('/api/v1/payment-plan-templates'),
+
+  createTemplate: (input: TemplateInput) =>
+    apiClient.post<PaymentPlanTemplate>('/api/v1/payment-plan-templates', input),
+
+  updateTemplate: (id: string, input: TemplateInput) =>
+    apiClient.put<PaymentPlanTemplate>(`/api/v1/payment-plan-templates/${id}`, input),
+
+  /** TPL-002. Retires a template; plans already made from it are untouched. */
+  archiveTemplate: (id: string) =>
+    apiClient.post<PaymentPlanTemplate>(`/api/v1/payment-plan-templates/${id}/archive`),
+
+  restoreTemplate: (id: string) =>
+    apiClient.post<PaymentPlanTemplate>(`/api/v1/payment-plan-templates/${id}/restore`),
 };
 
 /**
