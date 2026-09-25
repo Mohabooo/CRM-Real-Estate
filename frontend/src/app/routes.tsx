@@ -4,6 +4,8 @@ import { LoginPage } from '@/features/auth/LoginPage';
 import { RequireAuth } from '@/features/auth/RequireAuth';
 import { HomePage } from '@/features/home/HomePage';
 import { InventoryPage } from '@/features/inventory/InventoryPage';
+import { DealPage } from '@/features/deals/DealPage';
+import { DealsPage } from '@/features/deals/DealsPage';
 import { HoldsPage } from '@/features/reservations/HoldsPage';
 import { SystemStatusPage } from '@/features/system/SystemStatusPage';
 
@@ -33,6 +35,8 @@ export const router = createBrowserRouter(
             { index: true, element: <Navigate to="/inventory" replace /> },
             { path: 'inventory', element: <InventoryPage /> },
             { path: 'holds', element: <HoldsPage /> },
+            { path: 'deals', element: <DealsPage /> },
+            { path: 'deals/:id', element: <DealPage /> },
             { path: 'about', element: <HomePage /> },
             { path: 'system', element: <SystemStatusPage /> },
             { path: '*', element: <Navigate to="/inventory" replace /> },

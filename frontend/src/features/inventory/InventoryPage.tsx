@@ -17,10 +17,12 @@ import TableRow from '@mui/material/TableRow';
 import TextField from '@mui/material/TextField';
 import Typography from '@mui/material/Typography';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { isApiError } from '@/api/errors';
 import { inventoryApi, type Project, type Unit, type UnitStatus } from '@/api/inventory';
 import { useLanguage } from '@/app/LanguageContext';
 import { formatAmount, isValidAmount } from '@/format/money';
+import { DraftDealDialog } from '@/features/deals/DraftDealDialog';
 import { PlaceHoldDialog } from './PlaceHoldDialog';
 
 const STATUS_COLOURS: Record<UnitStatus, 'success' | 'warning' | 'default'> = {
@@ -43,6 +45,7 @@ const STATUS_COLOURS: Record<UnitStatus, 'success' | 'warning' | 'default'> = {
 export function InventoryPage() {
   const { t } = useTranslation();
   const { language } = useLanguage();
+  const navigate = useNavigate();
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
@@ -57,6 +60,7 @@ export function InventoryPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [holding, setHolding] = useState<Unit | null>(null);
+  const [drafting, setDrafting] = useState<Unit | null>(null);
   const [placed, setPlaced] = useState<string | null>(null);
 
   const priceInvalid = maxPrice.trim() !== '' && !isValidAmount(maxPrice);
@@ -223,14 +227,28 @@ export function InventoryPage() {
                     />
                   </TableCell>
                   <TableCell sx={{ textAlign: 'end' }}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      disabled={unit.status !== 'available'}
-                      onClick={() => setHolding(unit)}
-                    >
-                      {t('holds.place')}
-                    </Button>
+                    <Stack direction="row" spacing={1} justifyContent="flex-end">
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        disabled={unit.status !== 'available'}
+                        onClick={() => setHolding(unit)}
+                      >
+                        {t('holds.place')}
+                      </Button>
+                      {/* A reserved unit can still be sold — to the customer whose hold it
+                          is. The dialog names that hold and the server checks it, which is
+                          what keeps "held by the same party" from becoming "held by
+                          anybody". */}
+                      <Button
+                        size="small"
+                        variant="contained"
+                        disabled={unit.status !== 'available' && unit.status !== 'reserved'}
+                        onClick={() => setDrafting(unit)}
+                      >
+                        {t('deals.draft.action')}
+                      </Button>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ))
@@ -251,6 +269,15 @@ export function InventoryPage() {
           labelRowsPerPage={t('common.rowsPerPage')}
         />
       </TableContainer>
+
+      <DraftDealDialog
+        unit={drafting}
+        onClose={() => setDrafting(null)}
+        onDrafted={(dealId) => {
+          setDrafting(null);
+          navigate(`/deals/${dealId}`);
+        }}
+      />
 
       <PlaceHoldDialog
         unit={holding}

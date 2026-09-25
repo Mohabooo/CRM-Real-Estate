@@ -59,6 +59,8 @@ export interface UnitFilters {
 export const inventoryApi = {
   projects: () => apiClient.get<Page<Project>>('/api/v1/projects?size=200'),
 
+  unit: (id: string) => apiClient.get<Unit>(`/api/v1/units/${id}`),
+
   /**
    * Omitting `status` gives the default view, which excludes sold and blocked units. That is
    * the server's choice and the client does not second-guess it — the value of the default

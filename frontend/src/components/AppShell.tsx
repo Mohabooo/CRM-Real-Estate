@@ -19,6 +19,7 @@ import type { SupportedLanguage } from '@/i18n';
 const NAV_ITEMS = [
   { path: '/inventory', labelKey: 'nav.inventory' },
   { path: '/holds', labelKey: 'nav.holds' },
+  { path: '/deals', labelKey: 'nav.deals' },
   { path: '/system', labelKey: 'nav.system' },
 ] as const;
 
@@ -40,9 +41,13 @@ export function AppShell() {
   const { me, tenant, signOut } = useAuth();
   const navigate = useNavigate();
 
-  const activeTab = NAV_ITEMS.some((item) => item.path === location.pathname)
-    ? location.pathname
-    : false;
+  // A deal's own page keeps the Deals tab lit. Matching the exact path would leave no tab
+  // selected there, which reads as having navigated out of the application.
+  const activeTab =
+    NAV_ITEMS.find(
+      (item) =>
+        item.path === location.pathname || location.pathname.startsWith(`${item.path}/`),
+    )?.path ?? false;
 
   return (
     <Box sx={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>

@@ -8,7 +8,8 @@
     "system": "System status",
     "inventory": "Inventory",
     "holds": "Holds",
-    "signOut": "Sign out"
+    "signOut": "Sign out",
+    "deals": "Deals"
   },
   "language": {
     "label": "Language",
@@ -160,5 +161,132 @@
     "confirm": "Confirm",
     "confirmHint": "Confirming takes the unit off the market.",
     "confirmDenied": "Only a manager or operations can confirm a hold."
+  },
+  "dealStatus": {
+    "draft": "Draft",
+    "active": "Active",
+    "completed": "Completed",
+    "cancelled": "Cancelled"
+  },
+  "commercialModel": {
+    "own_inventory": "Own inventory",
+    "brokered_inventory": "Brokered"
+  },
+  "frequency": {
+    "monthly": "monthly",
+    "quarterly": "quarterly",
+    "semi_annual": "semi-annual",
+    "annual": "annual"
+  },
+  "installmentKind": {
+    "down_payment": "Down payment",
+    "installment": "Installment",
+    "delivery": "On delivery"
+  },
+  "deals": {
+    "heading": "Deal",
+    "listHeading": "Deals",
+    "listIntro": "Deals you can see. An agent sees their own, a branch manager their branch.",
+    "listEmpty": "No deals yet. Start one from a unit in Inventory.",
+    "loadFailed": "That deal could not be loaded.",
+    "actionFailed": "That did not go through.",
+    "backToList": "All deals",
+    "dealDate": "Struck on {{date}}",
+    "subtitleWithUnit": "Unit {{unit}} ({{status}}) · struck on {{date}}",
+    "list": {
+      "date": "Deal date",
+      "schedule": "Schedule",
+      "status": "Status",
+      "scheduleOf": "{{count}} rows",
+      "noSchedule": "Not generated"
+    },
+    "value": {
+      "heading": "Value",
+      "gross": "Gross value",
+      "discount": "Discount",
+      "net": "Net value",
+      "grossIsFrozen": "The gross value is the unit's list price, frozen when the deal was drafted. A later price change does not reach it."
+    },
+    "discounts": {
+      "heading": "Discounts",
+      "none": "No discount on this deal.",
+      "add": "Add",
+      "remove": "Remove this discount",
+      "percent": "Percent",
+      "amount": "Amount (EGP)",
+      "reason": "Reason",
+      "percentOf": "{{value}}% of gross",
+      "fixed": "Fixed amount",
+      "eitherOr": "A discount is either a percentage or a fixed amount. Percentages are taken against the gross value and are added, never compounded.",
+      "approvalRequired": "This discount is above your company's threshold, so a manager must approve it before the deal can be activated.",
+      "approvalRecorded": "The discount has been approved.",
+      "approve": "Approve",
+      "approved": "Discount approved."
+    },
+    "plan": {
+      "heading": "Payment schedule",
+      "template": "Payment plan",
+      "generate": "Generate schedule",
+      "regenerate": "Regenerate schedule",
+      "generated": "Schedule generated.",
+      "none": "No schedule yet. Choose a payment plan to generate one.",
+      "noTemplates": "No payment plans are offered for this unit's project yet."
+    },
+    "schedule": {
+      "downPayment": "Down payment",
+      "financed": "Financed",
+      "delivery": "On delivery",
+      "netValue": "Net value",
+      "number": "#",
+      "kind": "Type",
+      "dueDate": "Due",
+      "expected": "Expected (EGP)",
+      "total": "Total",
+      "terms": "{{count}} {{frequency}} installments, first due {{first}}.",
+      "doesNotBalance": "This schedule totals {{total}} but the deal's net value is {{net}}. Regenerate it before activating.",
+      "expectedOnly": "These are the amounts the customer is expected to pay. Payments received are recorded separately."
+    },
+    "activation": {
+      "heading": "Activation",
+      "activate": "Activate deal",
+      "activated": "Deal activated. The unit is now sold.",
+      "ready": "Everything needed is in place. Activating sells the unit and makes the schedule live.",
+      "needsSchedule": "Generate a payment schedule before activating.",
+      "scheduleStale": "The schedule no longer matches the deal's net value. Regenerate it before activating.",
+      "needsApproval": "A manager must approve the discount before activating.",
+      "cancel": "Cancel deal",
+      "cancelled": "Deal cancelled.",
+      "cancelledByAgent": "Cancelled before activation",
+      "cancelledBecause": "Cancelled: {{reason}}",
+      "liveUnitSold": "This deal is live and its unit is sold.",
+      "complete": "Mark completed",
+      "completed": "Deal completed.",
+      "completedOn": "Completed on {{date}}",
+      "completionNote": "Under brokered inventory completion is recorded by hand. Under own inventory it follows from the schedule being fully paid."
+    },
+    "downPayment": {
+      "prompt": "Has the developer confirmed they received the down payment?",
+      "confirm": "Record confirmation",
+      "confirmed": "Down payment confirmation recorded.",
+      "confirmedOn": "Developer confirmed receipt on {{date}}.",
+      "noPaymentCreated": "This records a confirmation, not a payment. The developer collects under this commercial model."
+    },
+    "draft": {
+      "action": "Start deal",
+      "title": "Start a deal on {{code}}",
+      "customer": "Customer",
+      "customersOnly": "A deal is made with a customer. Convert a lead first if they are not one yet.",
+      "grossFromListPrice": "Gross value will be the list price, {{amount}} EGP, frozen onto the deal.",
+      "convertsHold": "This unit has a {{status}} hold. The deal will be linked to it.",
+      "contextUnavailable": "Customers could not be loaded.",
+      "create": "Start deal",
+      "failed": "The deal could not be started."
+    },
+    "template": {
+      "downPercent": "{{value}}% down",
+      "downAmount": "{{value}} EGP down",
+      "installments": "{{count}} × {{frequency}}",
+      "delivery": "{{value}}% on delivery"
+    }
   }
 }

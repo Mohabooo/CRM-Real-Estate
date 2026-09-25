@@ -36,3 +36,30 @@ export function formatDate(iso: string | null | undefined, locale: string): stri
     ? ''
     : new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' }).format(date);
 }
+
+/**
+ * A calendar date for display — a due date, a deal date — with no time zone involved.
+ *
+ * Distinct from {@link formatDate}, and the difference is not cosmetic. An installment's due
+ * date is "30 April 2026" and nothing more; doc 22 section 9 is explicit that a calendar
+ * date must not silently acquire an instant. `new Date("2026-04-30")` parses as midnight
+ * UTC, so west of Greenwich that date renders as the 29th — a payment book a day out from
+ * the contract.
+ *
+ * So the parts are read off the string and handed to Intl as a local date, which is the one
+ * construction that cannot drift.
+ */
+export function formatCalendarDate(iso: string | null | undefined, locale: string): string {
+  if (!iso) {
+    return '';
+  }
+  const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso.trim());
+  if (!match) {
+    return iso;
+  }
+  const [, year, month, day] = match;
+  const date = new Date(Number(year), Number(month) - 1, Number(day));
+  return Number.isNaN(date.getTime())
+    ? iso
+    : new Intl.DateTimeFormat(locale, { dateStyle: 'medium' }).format(date);
+}
