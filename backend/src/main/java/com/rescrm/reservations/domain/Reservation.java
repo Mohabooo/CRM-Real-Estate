@@ -144,6 +144,28 @@ public class Reservation {
         this.status = ReservationStatus.CONFIRMED.code();
     }
 
+    /**
+     * Doc 18 section 3: "confirmed → converted", precondition "deal created from it".
+     *
+     * <p>Timing matters and the table does not fix it, so it is chosen here and stated.
+     * The conversion happens when the deal ACTIVATES, not when it is drafted. Doc 18
+     * section 4 says a draft deal cancels with "no side effects"; converting at draft time
+     * would create one, and a bad one — the hold would be in a terminal state while the
+     * unit stayed reserved with nothing live behind it, and nothing would ever release it.
+     *
+     * <p>The cost of the later timing is that a hold can expire out from under a draft
+     * deal, which E4-S2 already contemplates ("an expired reservation cannot convert"). The
+     * deal then activates against open inventory or fails to claim the unit at all, both of
+     * which are true statements about what happened. A stranded reserved unit is not.
+     *
+     * <p>Takes no reason: this hold ended by succeeding.
+     */
+    public void convert(OffsetDateTime now) {
+        requireTransition(ReservationStatus.CONVERTED);
+        this.status = ReservationStatus.CONVERTED.code();
+        this.closedAt = now;
+    }
+
     /** Doc 18: a release needs a reason; the unit goes back to inventory. */
     public void release(String reason, OffsetDateTime now) {
         String trimmed = requireText(reason, "release reason");

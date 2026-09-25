@@ -33,4 +33,35 @@ public interface CollectionPolicy {
     default boolean collectionMetricsApply() {
         return recordsCustomerPayments();
     }
+
+    /**
+     * Whether a deal carries a developer down-payment confirmation milestone (R-DP-1, E5-S7).
+     *
+     * <p>It exists precisely where the tenant does not collect: the customer pays the
+     * developer, so the one thing the tenant needs to know — and the thing its inbound
+     * commission claim depends on — is the developer's word that the down payment arrived.
+     * Where the tenant collects, the ledger already says so and a second confirmation would
+     * be a fact recorded twice with two chances to disagree.
+     *
+     * <p>Derived rather than configured, because it is the same fact as
+     * {@link #recordsCustomerPayments()} read from the other side. Stated as its own method
+     * so callers ask the question they mean instead of negating an unrelated-sounding one.
+     */
+    default boolean hasDeveloperDownPaymentConfirmation() {
+        return !recordsCustomerPayments();
+    }
+
+    /**
+     * Whether completion is a person's decision rather than the arithmetic consequence of a
+     * fully-paid schedule (doc 18 section 4, rev 2).
+     *
+     * <p>Under own inventory the tenant holds the ledger, so "completed" is a fact it can
+     * compute. Under brokered inventory it never learns when the customer finished paying
+     * the developer, so completion means "our part of the sale is done" and somebody says
+     * so. Without this distinction a brokered deal could never reach completed at all, and
+     * the confirmed inbound-commission trigger (R-COMM-6) would never fire.
+     */
+    default boolean completionIsManual() {
+        return !recordsCustomerPayments();
+    }
 }

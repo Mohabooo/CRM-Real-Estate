@@ -199,6 +199,41 @@ public class ReservationService {
         return saved;
     }
 
+    /**
+     * Doc 18 section 3's "confirmed → converted", called by the deals module when a deal
+     * that names this hold activates.
+     *
+     * <p>Published for exactly one caller and named for the event rather than offered as a
+     * general status setter, because the precondition the table states — "deal created from
+     * it" — is not something this module can check. The deal's id is passed and recorded so
+     * the audit entry says which sale ended the hold, and so a caller cannot convert a hold
+     * without having a deal in hand.
+     *
+     * <p>{@code REQUIRES_NEW} is deliberately not used. The conversion must live or die with
+     * the activation that asked for it: a hold marked converted beside a deal that rolled
+     * back would leave a unit nobody holds and nobody sold.
+     *
+     * <p>No authorization check of its own. Activation has already established that the
+     * caller may sell this unit, and a second check here would either duplicate that or
+     * disagree with it — and the actor doc 18 names for this row, AG or OPS, is the same
+     * person who activated.
+     */
+    @Transactional
+    public Reservation convertOnDealActivation(UUID reservationId, UUID dealId) {
+        UUID tenantId = TenantContext.require();
+        Reservation reservation = require(tenantId, reservationId);
+        ReservationStatus before = reservation.status();
+
+        apply(() -> reservation.convert(OffsetDateTime.now(clock)));
+        reservation.recordActor(SecurityContext.require().userId(), false);
+        Reservation saved = reservations.save(reservation);
+
+        audit.record(AuditAction.RESERVATION_CONVERTED, "Reservation", saved.id(),
+                Map.of("status", before.code()),
+                Map.of("status", saved.status().code(), "dealId", dealId.toString()), null);
+        return saved;
+    }
+
     // ---------------------------------------------------------------- E4-S3 extend
 
     /**

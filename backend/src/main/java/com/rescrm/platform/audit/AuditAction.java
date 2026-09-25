@@ -71,5 +71,35 @@ public enum AuditAction {
     RESERVATION_CANCELLED,
     RESERVATION_EXPIRED,
     RESERVATION_EXTENDED,
-    RESERVATION_DEPOSIT_RECORDED
+    RESERVATION_DEPOSIT_RECORDED,
+
+    /**
+     * Doc 18 section 3's last reservation transition, reachable only now that deals exist.
+     * Epic 4 declared the state and deliberately left it unreachable.
+     */
+    RESERVATION_CONVERTED,
+
+    // Epic 5 — deals and payment plans. Doc 18 section 4 marks every deal transition as
+    // audited and section 4's second row marks discount edits specifically, which is why
+    // discounts have three entries of their own: a concession granted, withdrawn or
+    // approved is the part of a price somebody will later be asked to justify.
+    DEAL_DRAFTED,
+    DEAL_DISCOUNT_ADDED,
+    DEAL_DISCOUNT_REMOVED,
+    DEAL_DISCOUNT_APPROVED,
+    DEAL_ACTIVATED,
+    DEAL_DOWN_PAYMENT_CONFIRMED,
+    DEAL_COMPLETED,
+    DEAL_CANCELLED,
+
+    // Doc 18 section 5. The plan's own transitions are the system's doing on the deal's
+    // behalf, but they are recorded separately: a schedule regenerated the day before
+    // signing is the kind of thing a customer disputes later.
+    PAYMENT_PLAN_GENERATED,
+    PAYMENT_PLAN_REGENERATED,
+    PAYMENT_PLAN_ACTIVATED,
+    PAYMENT_PLAN_TEMPLATE_CREATED,
+    PAYMENT_PLAN_TEMPLATE_UPDATED,
+    PAYMENT_PLAN_TEMPLATE_ARCHIVED,
+    PAYMENT_PLAN_TEMPLATE_RESTORED
 }
