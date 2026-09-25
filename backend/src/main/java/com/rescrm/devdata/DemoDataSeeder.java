@@ -2,6 +2,10 @@ package com.rescrm.devdata;
 
 import com.rescrm.crm.service.CustomerService;
 import com.rescrm.crm.service.LeadService;
+import com.rescrm.deals.domain.PaymentPlanTemplate;
+import com.rescrm.deals.service.PaymentPlanService;
+import com.rescrm.finance.schedule.DownPayment;
+import com.rescrm.finance.schedule.Frequency;
 import com.rescrm.identity.domain.Branch;
 import com.rescrm.identity.service.InvitationService;
 import com.rescrm.identity.service.TenantProvisioningService;
@@ -12,6 +16,7 @@ import com.rescrm.inventory.service.ProjectService;
 import com.rescrm.inventory.service.UnitService;
 import com.rescrm.platform.money.CurrencyCode;
 import com.rescrm.platform.money.Money;
+import com.rescrm.platform.money.Percentage;
 import com.rescrm.platform.security.AuthenticatedPrincipal;
 import com.rescrm.platform.security.Role;
 import com.rescrm.platform.security.SecurityContext;
@@ -80,18 +85,21 @@ public class DemoDataSeeder implements ApplicationRunner {
     private final ProjectService projects;
     private final UnitService units;
     private final CustomerService customers;
+    private final PaymentPlanService paymentPlans;
     private final LeadService leads;
 
     public DemoDataSeeder(PlatformAuthenticationLookup lookup,
                           TenantProvisioningService provisioning,
                           InvitationService invitations, ProjectService projects,
-                          UnitService units, CustomerService customers, LeadService leads) {
+                          UnitService units, CustomerService customers, LeadService leads,
+                          PaymentPlanService paymentPlans) {
         this.lookup = lookup;
         this.provisioning = provisioning;
         this.invitations = invitations;
         this.projects = projects;
         this.units = units;
         this.customers = customers;
+        this.paymentPlans = paymentPlans;
         this.leads = leads;
     }
 
@@ -139,6 +147,7 @@ public class DemoDataSeeder implements ApplicationRunner {
 
             seedUnits(project.id());
             seedParties(branch.id());
+            seedPaymentPlans(project.id());
             return null;
         });
 
@@ -169,6 +178,40 @@ public class DemoDataSeeder implements ApplicationRunner {
         // other than 'available' to show and the default view visibly excludes something.
         units.block(created.get("V-01"),
                 "Show villa; not for sale until the sales centre moves");
+    }
+
+    /**
+     * Three plan shapes an agent would actually recognise, so the deal flow has something to
+     * apply (E5-S3, E5-S4).
+     *
+     * <p>All three are tenant-wide rather than scoped to Nile Towers. A project-scoped
+     * template is the narrower case and offering only those would hide the templates from
+     * any second project somebody adds while trying the system out.
+     *
+     * <p>None sets an installment offset, so each takes the documented default of one
+     * frequency interval — which is also what makes the month-end behaviour visible on a
+     * deal struck on the 29th or later.
+     */
+    private void seedPaymentPlans(UUID projectId) {
+        record Plan(String name, String shorthand, DownPayment down, String deliveryPercent,
+                    int count, Frequency frequency) { }
+
+        List<Plan> plans = List.of(
+                new Plan("Standard 8-year", "10% down, 8 years quarterly, 5% on delivery",
+                        DownPayment.percent(Percentage.of("10")), "5", 32, Frequency.QUARTERLY),
+                new Plan("5-year monthly", "15% down, 5 years monthly, 10% on delivery",
+                        DownPayment.percent(Percentage.of("15")), "10", 60, Frequency.MONTHLY),
+                new Plan("Cash-heavy 3-year", "500,000 down, 3 years quarterly, nothing held back",
+                        DownPayment.fixed(Money.of("500000.00", CurrencyCode.EGP)), "0", 12,
+                        Frequency.QUARTERLY));
+
+        plans.forEach(plan -> paymentPlans.createTemplate(null, plan.name(), plan.shorthand(),
+                new PaymentPlanTemplate.Shape(plan.down(), Percentage.of(plan.deliveryPercent()),
+                        plan.count(), plan.frequency(), null)));
+
+        // Referenced so the signature stays honest about what this seeds against; the
+        // templates themselves are tenant-wide by design.
+        log.debug("Payment plan templates seeded alongside project {}", projectId);
     }
 
     private void seedParties(UUID branchId) {
@@ -206,7 +249,7 @@ public class DemoDataSeeder implements ApplicationRunner {
         log.info("    company key   {}", SLUG);
         log.info("    owner         {}   password {}", OWNER_EMAIL, PASSWORD);
         log.info("    sales agent   {}   password {}", AGENT_EMAIL, PASSWORD);
-        log.info("Nile Towers: 8 units (1 blocked), 2 customers, 2 leads.");
+        log.info("Nile Towers: 8 units (1 blocked), 2 customers, 2 leads, 3 payment plans.");
         log.info("Switch this off with crm.demo-data.enabled=false");
     }
 }
