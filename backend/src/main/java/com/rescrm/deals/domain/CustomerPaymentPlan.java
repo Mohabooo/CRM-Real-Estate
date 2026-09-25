@@ -26,6 +26,14 @@ import java.util.UUID;
  * figures are the generated ones by construction. Storing the terms and recomputing later
  * would leave two answers to the same question, and the one a customer holds on paper
  * would be whichever was computed first.
+ *
+ * <p>Doc 22 lists a {@code rounding_policy} column on this table and V7 does not create
+ * one. That is a decision, not an oversight: doc 17's conventions fix rounding for the
+ * whole system — half-up everywhere except the base installment, which floors so the
+ * remainder is non-negative and lands on the last row (R-INST-1, R-INST-2). A per-plan
+ * policy column would be a way for one plan to opt out of a rule the financial design
+ * depends on, and FIN-010 asserts the floor is not negotiable. If a second policy is ever
+ * genuinely needed, it arrives with the rule that justifies it.
  */
 @Entity
 @Table(name = "customer_payment_plans")
