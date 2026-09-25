@@ -4,6 +4,7 @@ import com.rescrm.deals.domain.CustomerPaymentPlan;
 import com.rescrm.deals.domain.Deal;
 import com.rescrm.deals.domain.Installment;
 import com.rescrm.deals.domain.PaymentPlanTemplate;
+import com.rescrm.deals.domain.PlanStatus;
 import com.rescrm.deals.repository.CustomerPaymentPlanRepository;
 import com.rescrm.deals.repository.DealRepository;
 import com.rescrm.deals.repository.InstallmentRepository;
@@ -255,10 +256,7 @@ public class PaymentPlanService {
     public PlanWithSchedule activateFor(Deal deal) {
         UUID tenantId = deal.tenantId();
         CustomerPaymentPlan plan = plans.findDraftForDeal(tenantId, deal.id())
-                .orElseThrow(() -> ApiException.businessRule(
-                        "This deal has no payment schedule yet; apply a payment plan before "
-                                + "activating it",
-                        Map.of("dealId", deal.id().toString())));
+                .orElseThrow(() -> noDraftPlan(tenantId, deal));
 
         PlanWithSchedule generated = new PlanWithSchedule(plan,
                 installments.findAllForPlan(tenantId, plan.id()));
@@ -279,6 +277,75 @@ public class PaymentPlanService {
                         "expectedTotal", generated.expectedTotal().toPlainString()), null);
 
         return new PlanWithSchedule(saved, generated.installments());
+    }
+
+    /**
+     * Doc 18 section 5's "active → closed", performed as the deal it belongs to completes.
+     *
+     * <p>Joins the caller's transaction for the same reason {@link #activateFor} does: a
+     * plan closed beside a deal that rolled back would be a schedule nobody owes against a
+     * sale still in progress.
+     *
+     * <p>This was missing, and the gap was quiet. A completed deal left its plan active
+     * for ever — doc 18 lists the transition, {@code CustomerPaymentPlan.close()} existed
+     * to perform it, and nothing called it. Nothing downstream in Epic 5 reads plan status,
+     * so no test failed; Epic 7's collection queries would have been the first to notice,
+     * by chasing installments on deals that finished months earlier.
+     *
+     * <p>Absent rather than refused when there is no active plan: a deal can only complete
+     * from active, and activation guarantees a live plan, so this is defensive. It stays
+     * silent rather than throwing because failing a completion over a missing schedule
+     * would turn a bookkeeping gap into a blocked sale.
+     */
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<PlanWithSchedule> closeFor(Deal deal) {
+        UUID tenantId = deal.tenantId();
+        Optional<CustomerPaymentPlan> live = plans.findActiveForDeal(tenantId, deal.id());
+        if (live.isEmpty()) {
+            return Optional.empty();
+        }
+
+        CustomerPaymentPlan plan = live.get();
+        try {
+            plan.close();
+        } catch (IllegalStateException e) {
+            throw new ApiException(ErrorCode.ILLEGAL_STATE_TRANSITION, e.getMessage());
+        }
+        plan.recordActor(SecurityContext.require().userId(), false);
+        CustomerPaymentPlan saved = plans.save(plan);
+
+        audit.record(AuditAction.PAYMENT_PLAN_CLOSED, "CustomerPaymentPlan", saved.id(),
+                Map.of("status", PlanStatus.ACTIVE.code()),
+                Map.of("status", saved.status().code(),
+                        "dealId", deal.id().toString()), null);
+
+        return Optional.of(new PlanWithSchedule(saved,
+                installments.findAllForPlan(tenantId, saved.id())));
+    }
+
+    /**
+     * Why there is no draft plan to activate, distinguishing the two reasons.
+     *
+     * <p>Usually it is that nobody generated one. But two callers activating at the same
+     * instant — a double-clicked button, two open tabs — reach here differently: the first
+     * commits, and the second finds the draft gone because it is now the active plan. Both
+     * used to be reported as "this deal has no payment schedule yet", which sends somebody
+     * to generate a schedule for a deal that has just been signed.
+     *
+     * <p>The refusal is still a refusal. The loser of a race has not activated anything and
+     * must not be told it has; it is told what actually happened instead.
+     */
+    private ApiException noDraftPlan(UUID tenantId, Deal deal) {
+        if (plans.findActiveForDeal(tenantId, deal.id()).isPresent()) {
+            return ApiException.conflict(
+                    "This deal's payment schedule is already live; it was activated a moment "
+                            + "ago",
+                    Map.of("dealId", deal.id().toString()));
+        }
+        return ApiException.businessRule(
+                "This deal has no payment schedule yet; apply a payment plan before "
+                        + "activating it",
+                Map.of("dealId", deal.id().toString()));
     }
 
     /**
