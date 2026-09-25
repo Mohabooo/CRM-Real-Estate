@@ -316,6 +316,11 @@ class InventoryTenantIsolationIT extends AbstractPostgresIT {
         @Test
         @DisplayName("B's row counts are unchanged after every attempt above")
         void counts_unchanged() {
+            // Read as B's own owner. The suite now connects as a role row-level security
+            // applies to, so counting another tenant's rows from A's session returns zero —
+            // which is the policy working, not the rows having gone anywhere. Under the old
+            // superuser connection this read B's rows from A's session and nobody noticed.
+            asOwnerOf(tenantB);
             UUID b = tenantB.tenant().id();
             assertThat(developers.countByTenantId(b)).isEqualTo(1);
             assertThat(projects.countByTenantId(b)).isEqualTo(1);
