@@ -76,7 +76,7 @@ class PaymentScheduleGeneratorPropertyTest {
 
         PaymentSchedule schedule = PaymentScheduleGenerator.generate(new PlanTerms(
                 net, DownPayment.fixed(down), Percentage.zero(),
-                installmentCount, Frequency.MONTHLY, DEAL_DATE, 30, Optional.empty()));
+                installmentCount, Frequency.MONTHLY, DEAL_DATE, Optional.of(30), Optional.empty()));
 
         assertThat(schedule.total()).isEqualByComparingTo(net);
         assertThat(schedule.downPaymentAmount()).isEqualByComparingTo(down);
@@ -95,7 +95,7 @@ class PaymentScheduleGeneratorPropertyTest {
                 cents(netCents),
                 DownPayment.percent(Percentage.of(String.valueOf(downPercent))),
                 Percentage.of(String.valueOf(deliveryPercent)),
-                installmentCount, Frequency.QUARTERLY, DEAL_DATE, 30, Optional.empty()));
+                installmentCount, Frequency.QUARTERLY, DEAL_DATE, Optional.of(30), Optional.empty()));
 
         // FIN-001b generalised: one down payment, N installments, one delivery row.
         assertThat(schedule.rows()).hasSize(installmentCount + 2);

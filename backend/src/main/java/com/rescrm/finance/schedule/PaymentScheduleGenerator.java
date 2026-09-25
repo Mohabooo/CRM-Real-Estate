@@ -56,10 +56,19 @@ public final class PaymentScheduleGenerator {
         }
 
         List<Money> installmentAmounts = MoneySplitter.split(financed, terms.installmentCount());
-        List<LocalDate> dueDates = ScheduleDateCalculator.dueDates(
-                ScheduleDateCalculator.firstDueDate(terms.dealDate(),
-                        terms.firstInstallmentOffsetDays()),
-                terms.frequency(), terms.installmentCount());
+        // An offset stated in days is taken literally and the cadence runs from the
+        // resulting date (FIN-024). No offset means the documented default of one frequency
+        // interval, which anchors on the deal date so the original day-of-month survives
+        // every step (R-INST-6). The two are genuinely different schedules and the
+        // difference is invisible unless it is written down: ninety days after 31 January is
+        // 1 May, while one quarter after it is 30 April — and from there the first runs on
+        // the 1st of every month and the second on the 31st, clamping.
+        List<LocalDate> dueDates = terms.firstInstallmentOffsetDays()
+                .map(offsetDays -> ScheduleDateCalculator.dueDates(
+                        ScheduleDateCalculator.firstDueDate(terms.dealDate(), offsetDays),
+                        terms.frequency(), terms.installmentCount()))
+                .orElseGet(() -> ScheduleDateCalculator.dueDatesOneIntervalAfter(
+                        terms.dealDate(), terms.frequency(), terms.installmentCount()));
 
         List<PaymentSchedule.Row> rows = new ArrayList<>(terms.installmentCount() + 2);
         int sequence = 1;

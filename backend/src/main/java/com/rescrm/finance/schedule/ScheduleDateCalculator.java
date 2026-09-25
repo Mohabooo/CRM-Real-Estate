@@ -35,8 +35,11 @@ public final class ScheduleDateCalculator {
     }
 
     /**
-     * Resolves the first installment due date from the deal date and a configured offset
-     * (rule R-INST-4).
+     * Resolves the first installment due date from the deal date and a configured offset in
+     * whole days (rule R-INST-4, FIN-024).
+     *
+     * <p>Days, because that is what doc 22 stores: {@code first_installment_offset_days}.
+     * The cadence then runs from the resulting date.
      *
      * @param dealDate   the date the deal was struck
      * @param offsetDays whole days between the deal date and the first due date; may be zero
@@ -56,7 +59,35 @@ public final class ScheduleDateCalculator {
      * @return an immutable, strictly ascending list of dates
      */
     public static List<LocalDate> dueDates(LocalDate firstDueDate, Frequency frequency, int count) {
-        Objects.requireNonNull(firstDueDate, "firstDueDate must not be null");
+        return dueDatesFrom(firstDueDate, frequency, count, 0);
+    }
+
+    /**
+     * The schedule a plan gets when its template configures no offset at all.
+     *
+     * <p>Doc 17 section 12 gives that default as "one frequency interval", and the interval
+     * is months — so the first installment falls one interval after the DEAL date and the
+     * whole cadence is anchored there. Expressing the same default as a day count would be a
+     * quiet defect: ninety days after 31 January is 1 May, and every installment from then
+     * on would fall on the first of a month, silently discarding R-INST-6's "retain the
+     * original day-of-month" for the common case. Anchored on the deal date it runs
+     * 30 Apr → 31 Jul → 31 Oct → 31 Jan, which is what the rule describes.
+     *
+     * <p>An explicitly configured offset keeps FIN-024's literal reading — deal date plus
+     * that many days — because a tenant that wrote a number of days meant days.
+     */
+    public static List<LocalDate> dueDatesOneIntervalAfter(LocalDate dealDate,
+                                                           Frequency frequency, int count) {
+        return dueDatesFrom(dealDate, frequency, count, 1);
+    }
+
+    /**
+     * @param anchor     the date every due date is computed from
+     * @param firstStep  how many frequency intervals separate the anchor from installment one
+     */
+    private static List<LocalDate> dueDatesFrom(LocalDate anchor, Frequency frequency, int count,
+                                                int firstStep) {
+        Objects.requireNonNull(anchor, "anchor must not be null");
         Objects.requireNonNull(frequency, "frequency must not be null");
         if (count < 1) {
             throw new IllegalArgumentException("count must be at least 1, was " + count);
@@ -70,7 +101,7 @@ public final class ScheduleDateCalculator {
         List<LocalDate> dates = new ArrayList<>(count);
         for (int index = 0; index < count; index++) {
             // Always from the anchor, never from the previous date — see the class comment.
-            dates.add(firstDueDate.plusMonths((long) index * step));
+            dates.add(anchor.plusMonths((long) (index + firstStep) * step));
         }
         return Collections.unmodifiableList(dates);
     }

@@ -8,6 +8,7 @@ import com.rescrm.platform.money.Money;
 import com.rescrm.platform.money.Percentage;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -61,10 +62,25 @@ public final class CanonicalDeal {
     private CanonicalDeal() {
     }
 
-    /** The terms, with the first installment one quarter after the deal date. */
+    /** The first four installment dates, which exercise R-INST-6 from a 31st. */
+    public static final List<LocalDate> FIRST_FOUR_DUE_DATES = List.of(
+            LocalDate.of(2026, 4, 30),
+            LocalDate.of(2026, 7, 31),
+            LocalDate.of(2026, 10, 31),
+            LocalDate.of(2027, 1, 31));
+
+    /**
+     * The terms, with no configured offset — so the first installment falls one frequency
+     * interval after the deal date, which is doc 17 section 12's documented default.
+     *
+     * <p>It matters that this is the default and not ninety days. Ninety days after 31
+     * January is 1 May, and the whole eight-year schedule would then run on the 1st of a
+     * month; one quarter after it is 30 April, and the schedule keeps the original
+     * day-of-month with month-end clamping, which is what R-INST-6 describes.
+     */
     public static PlanTerms terms() {
         return new PlanTerms(NET_VALUE, DownPayment.percent(DOWN_PAYMENT_PERCENT),
                 DELIVERY_PERCENT, INSTALLMENT_COUNT, FREQUENCY, DEAL_DATE,
-                FREQUENCY.monthsBetweenDueDates() * 30, Optional.of(PROJECT_DELIVERY_DATE));
+                Optional.empty(), Optional.of(PROJECT_DELIVERY_DATE));
     }
 }

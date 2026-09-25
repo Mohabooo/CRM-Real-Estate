@@ -139,7 +139,7 @@ class PaymentScheduleGeneratorTest {
         private PaymentSchedule schedule(Money net, int count) {
             return PaymentScheduleGenerator.generate(new PlanTerms(net,
                     DownPayment.none(Money.zero(EGP)), Percentage.zero(), count,
-                    Frequency.MONTHLY, LocalDate.of(2026, 3, 15), 30, Optional.empty()));
+                    Frequency.MONTHLY, LocalDate.of(2026, 3, 15), Optional.of(30), Optional.empty()));
         }
     }
 
@@ -204,7 +204,7 @@ class PaymentScheduleGeneratorTest {
         void delivery_date_falls_back_visibly() {
             PaymentSchedule schedule = PaymentScheduleGenerator.generate(new PlanTerms(
                     egp("120000.00"), DownPayment.none(Money.zero(EGP)), Percentage.of("10"),
-                    3, Frequency.MONTHLY, LocalDate.of(2026, 3, 15), 30, Optional.empty()));
+                    3, Frequency.MONTHLY, LocalDate.of(2026, 3, 15), Optional.of(30), Optional.empty()));
 
             // Visibly last rather than invented. A guessed delivery date would be quoted to
             // a customer as though somebody had decided it.
@@ -212,10 +212,64 @@ class PaymentScheduleGeneratorTest {
                     .isEqualTo(schedule.rowsOfKind(InstallmentKind.INSTALLMENT).get(2).dueDate());
         }
 
+        @Test
+        @DisplayName("FIN-024 — an offset stated in days is taken literally")
+        void configured_offset_is_days() {
+            // Doc 22 stores first_installment_offset_days, so a tenant that wrote 45 meant
+            // forty-five days. The cadence then runs from the date that produces.
+            PaymentSchedule schedule = PaymentScheduleGenerator.generate(new PlanTerms(
+                    egp("120000.00"), DownPayment.none(Money.zero(EGP)), Percentage.zero(),
+                    3, Frequency.MONTHLY, LocalDate.of(2026, 1, 31), Optional.of(45),
+                    Optional.empty()));
+
+            assertThat(schedule.rowsOfKind(InstallmentKind.INSTALLMENT).stream()
+                    .map(PaymentSchedule.Row::dueDate).toList())
+                    .containsExactly(LocalDate.of(2026, 3, 17), LocalDate.of(2026, 4, 17),
+                            LocalDate.of(2026, 5, 17));
+        }
+
+        @Test
+        @DisplayName("no offset means one frequency interval, anchored on the deal date")
+        void default_offset_is_one_interval_not_a_day_count() {
+            // Doc 17 section 12 gives the default as "one frequency interval". Expressing
+            // that as a day count would be a quiet defect: ninety days after 31 January is
+            // 1 May, and every installment for the next eight years would fall on the 1st
+            // of a month, discarding R-INST-6's original day-of-month. One quarter after it
+            // is 30 April, clamped, and the 31st comes back at the next step.
+            PaymentSchedule schedule =
+                    PaymentScheduleGenerator.generate(CanonicalDeal.terms());
+
+            assertThat(schedule.rowsOfKind(InstallmentKind.INSTALLMENT).stream()
+                    .map(PaymentSchedule.Row::dueDate).limit(4).toList())
+                    .containsExactlyElementsOf(CanonicalDeal.FIRST_FOUR_DUE_DATES);
+        }
+
+        @Test
+        @DisplayName("and the default never coincides with the ninety-day reading")
+        void the_two_readings_are_genuinely_different() {
+            PaymentSchedule byInterval =
+                    PaymentScheduleGenerator.generate(CanonicalDeal.terms());
+            PaymentSchedule byNinetyDays = PaymentScheduleGenerator.generate(new PlanTerms(
+                    CanonicalDeal.NET_VALUE,
+                    DownPayment.percent(CanonicalDeal.DOWN_PAYMENT_PERCENT),
+                    CanonicalDeal.DELIVERY_PERCENT, CanonicalDeal.INSTALLMENT_COUNT,
+                    CanonicalDeal.FREQUENCY, CanonicalDeal.DEAL_DATE, Optional.of(90),
+                    Optional.of(CanonicalDeal.PROJECT_DELIVERY_DATE)));
+
+            // The money is identical either way; only the dates move. Asserted so a future
+            // change that collapses the two readings fails here rather than in a customer's
+            // payment book.
+            assertThat(byNinetyDays.total()).isEqualByComparingTo(byInterval.total());
+            assertThat(byNinetyDays.rowsOfKind(InstallmentKind.INSTALLMENT).get(0).dueDate())
+                    .isEqualTo(LocalDate.of(2026, 5, 1));
+            assertThat(byInterval.rowsOfKind(InstallmentKind.INSTALLMENT).get(0).dueDate())
+                    .isEqualTo(LocalDate.of(2026, 4, 30));
+        }
+
         private List<LocalDate> dueDates(LocalDate first, Frequency frequency, int count) {
             return PaymentScheduleGenerator.generate(new PlanTerms(
                             egp("1200000.00"), DownPayment.none(Money.zero(EGP)),
-                            Percentage.zero(), count, frequency, first, 0, Optional.empty()))
+                            Percentage.zero(), count, frequency, first, Optional.of(0), Optional.empty()))
                     .rowsOfKind(InstallmentKind.INSTALLMENT).stream()
                     .map(PaymentSchedule.Row::dueDate)
                     .toList();
@@ -231,7 +285,7 @@ class PaymentScheduleGeneratorTest {
         void down_payment_cannot_exceed_net() {
             assertThatThrownBy(() -> PaymentScheduleGenerator.generate(new PlanTerms(
                     egp("100000.00"), DownPayment.fixed(egp("200000.00")), Percentage.zero(),
-                    12, Frequency.MONTHLY, LocalDate.of(2026, 3, 15), 30, Optional.empty())))
+                    12, Frequency.MONTHLY, LocalDate.of(2026, 3, 15), Optional.of(30), Optional.empty())))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("exceeds the net value");
         }
@@ -241,7 +295,7 @@ class PaymentScheduleGeneratorTest {
         void down_and_delivery_cannot_exceed_net() {
             assertThatThrownBy(() -> PaymentScheduleGenerator.generate(new PlanTerms(
                     egp("100000.00"), DownPayment.fixed(egp("80000.00")), Percentage.of("50"),
-                    12, Frequency.MONTHLY, LocalDate.of(2026, 3, 15), 30, Optional.empty())))
+                    12, Frequency.MONTHLY, LocalDate.of(2026, 3, 15), Optional.of(30), Optional.empty())))
                     .isInstanceOf(IllegalArgumentException.class);
         }
 
@@ -250,7 +304,7 @@ class PaymentScheduleGeneratorTest {
         void net_value_must_be_positive() {
             assertThatThrownBy(() -> new PlanTerms(Money.zero(EGP),
                     DownPayment.none(Money.zero(EGP)), Percentage.zero(), 12,
-                    Frequency.MONTHLY, LocalDate.of(2026, 3, 15), 30, Optional.empty()))
+                    Frequency.MONTHLY, LocalDate.of(2026, 3, 15), Optional.of(30), Optional.empty()))
                     .isInstanceOf(IllegalArgumentException.class)
                     .hasMessageContaining("positive");
         }
@@ -260,7 +314,7 @@ class PaymentScheduleGeneratorTest {
         void at_least_one_installment() {
             assertThatThrownBy(() -> new PlanTerms(egp("100.00"),
                     DownPayment.none(Money.zero(EGP)), Percentage.zero(), 0,
-                    Frequency.MONTHLY, LocalDate.of(2026, 3, 15), 30, Optional.empty()))
+                    Frequency.MONTHLY, LocalDate.of(2026, 3, 15), Optional.of(30), Optional.empty()))
                     .isInstanceOf(IllegalArgumentException.class);
         }
     }

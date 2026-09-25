@@ -21,7 +21,10 @@ import java.util.Optional;
  * @param installmentCount          how many financed installments; at least one
  * @param frequency                 the cadence between them (R-INST-5)
  * @param dealDate                  when the deal was struck; the down payment is due then
- * @param firstInstallmentOffsetDays offset from the deal date to installment one (R-INST-4)
+ * @param firstInstallmentOffsetDays whole days from the deal date to installment one
+ *                                  (R-INST-4, FIN-024); EMPTY means the documented default,
+ *                                  one frequency interval, which is months rather than days
+ *                                  and keeps R-INST-6's original day-of-month
  * @param projectDeliveryDate       the delivery installment's date (FIN-025), if known
  */
 public record PlanTerms(Money netValue,
@@ -30,7 +33,7 @@ public record PlanTerms(Money netValue,
                         int installmentCount,
                         Frequency frequency,
                         LocalDate dealDate,
-                        int firstInstallmentOffsetDays,
+                        Optional<Integer> firstInstallmentOffsetDays,
                         Optional<LocalDate> projectDeliveryDate) {
 
     public PlanTerms {
@@ -40,6 +43,7 @@ public record PlanTerms(Money netValue,
         Objects.requireNonNull(frequency, "frequency");
         Objects.requireNonNull(dealDate, "dealDate");
         Objects.requireNonNull(projectDeliveryDate, "projectDeliveryDate");
+        Objects.requireNonNull(firstInstallmentOffsetDays, "firstInstallmentOffsetDays");
 
         if (!netValue.isPositive()) {
             throw new IllegalArgumentException("net value must be positive (R-DISC-4), was "
@@ -49,7 +53,7 @@ public record PlanTerms(Money netValue,
             throw new IllegalArgumentException(
                     "a plan has at least one installment, was " + installmentCount);
         }
-        if (firstInstallmentOffsetDays < 0) {
+        if (firstInstallmentOffsetDays.isPresent() && firstInstallmentOffsetDays.get() < 0) {
             throw new IllegalArgumentException(
                     "the first installment cannot fall before the deal date");
         }
