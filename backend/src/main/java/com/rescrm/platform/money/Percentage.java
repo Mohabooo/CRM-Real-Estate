@@ -59,14 +59,29 @@ public final class Percentage implements Comparable<Percentage>, Serializable {
     }
 
     /**
-     * Applies this percentage to an amount, rounding half-up to the currency scale.
+     * Applies this percentage to an amount, rounding half-up to the currency scale ONCE.
      *
      * <p>Example from the canonical fixture (doc 17, §5): 5% of 3,000,000.00 is 150,000.00.
+     *
+     * <p>The product and the division are both exact, and that is the point (FIN-016, "no
+     * intermediate pre-rounding"). An amount carries two decimals and a rate carries four,
+     * so their product carries six and needs no rounding; dividing by a power of ten shifts
+     * the point rather than dividing, so the eight-decimal quotient is exact too. Only the
+     * last step rounds, and it rounds the true value.
+     *
+     * <p>This used to round the quotient to six decimals first and then to two, which is
+     * double rounding and gives the wrong cent whenever the exact value sits just below a
+     * half: 7.3333% of 1,000,000.75 is 73,333.05499975, which is 73,333.05 rounded half-up,
+     * but rounding to 73,333.055000 first turned it into 73,333.06. A rate with four
+     * decimals is ordinary — a discount negotiated as a third of a percent, a down payment
+     * quoted to reach a round total — and the resulting cent lands in the net value, which
+     * the whole schedule is then built from. Nothing downstream could catch it: every
+     * invariant reconciles happily against a net value that is one cent wrong.
      */
     public Money applyTo(Money base) {
         Objects.requireNonNull(base, "base must not be null");
-        BigDecimal raw = base.amount().multiply(value).divide(ONE_HUNDRED, SCALE + Money.SCALE, RoundingMode.HALF_UP);
-        return Money.of(raw, base.currency(), RoundingMode.HALF_UP);
+        return Money.of(base.amount().multiply(value).movePointLeft(2), base.currency(),
+                RoundingMode.HALF_UP);
     }
 
     /** The percentage as written, e.g. {@code 5.0000} for 5%. */
