@@ -161,21 +161,54 @@ class ReservationTest {
         }
 
         @Test
-        @DisplayName("converted is declared but unreachable until deals exist")
-        void conversion_waits_for_epic_five() {
-            // Doc 18's precondition is "deal created from it". Nothing in Epic 4 can create
-            // one, so nothing in Epic 4 may set this status — a converted hold with no deal
-            // behind it would be the system claiming a sale that never happened.
-            assertThat(ReservationStatus.CONFIRMED.canTransitionTo(ReservationStatus.CONVERTED))
-                    .as("the transition is legal in the machine")
-                    .isTrue();
+        @DisplayName("a confirmed hold converts, and records when it closed")
+        void conversion() {
+            // This test used to assert the opposite: that no method on the entity could
+            // reach CONVERTED, because doc 18's precondition is "deal created from it" and
+            // Epic 4 could not create one. Epic 5 can, so the guard has done its job and is
+            // replaced by the behaviour it was holding the place for.
+            Reservation reservation = confirmedHold();
+            reservation.convert(NOW);
 
-            boolean anyMethodReachesIt = java.util.Arrays.stream(Reservation.class.getMethods())
-                    .anyMatch(method -> method.getName().toLowerCase(java.util.Locale.ROOT)
-                            .contains("convert"));
-            assertThat(anyMethodReachesIt)
-                    .as("but no method on the entity can set it yet")
-                    .isFalse();
+            assertThat(reservation.status()).isEqualTo(ReservationStatus.CONVERTED);
+            assertThat(reservation.closedAt()).isEqualTo(NOW);
+            assertThat(reservation.closedReason())
+                    .as("this hold ended by succeeding; there is nothing to explain")
+                    .isNull();
+        }
+
+        @Test
+        @DisplayName("a hold that was never confirmed cannot convert")
+        void pending_holds_do_not_convert() {
+            // Doc 18 section 3 lists confirmed -> converted and nothing else into that
+            // state. A pending hold never withheld its unit, so converting one would claim
+            // a sale of something the system had not reserved.
+            assertThatThrownBy(() -> hold().convert(NOW))
+                    .isInstanceOf(IllegalStateException.class);
+        }
+
+        @Test
+        @DisplayName("and neither can one that expired or was released")
+        void closed_holds_do_not_convert() {
+            Reservation released = confirmedHold();
+            released.release("Customer withdrew", NOW);
+            assertThatThrownBy(() -> released.convert(NOW))
+                    .isInstanceOf(IllegalStateException.class);
+
+            Reservation expired = confirmedHold();
+            expired.expire(NOW.plusDays(7));
+            assertThatThrownBy(() -> expired.convert(NOW.plusDays(7)))
+                    .as("E4-S2: an expired reservation cannot convert")
+                    .isInstanceOf(IllegalStateException.class);
+        }
+
+        @Test
+        @DisplayName("converting twice is refused")
+        void conversion_is_terminal() {
+            Reservation reservation = confirmedHold();
+            reservation.convert(NOW);
+            assertThatThrownBy(() -> reservation.convert(NOW))
+                    .isInstanceOf(IllegalStateException.class);
         }
     }
 
