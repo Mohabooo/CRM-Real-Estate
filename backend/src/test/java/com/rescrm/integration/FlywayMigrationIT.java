@@ -32,7 +32,7 @@ class FlywayMigrationIT extends AbstractPostgresIT {
                 "SELECT version FROM flyway_schema_history WHERE success = true ORDER BY installed_rank",
                 String.class);
 
-        assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6");
+        assertThat(versions).containsExactly("1", "2", "3", "4", "5", "6", "7");
     }
 
     @Test
@@ -91,17 +91,24 @@ class FlywayMigrationIT extends AbstractPostgresIT {
         // V6 adds sessions, finishing the authentication Epic 1 deliberately left open. It
         // is an identity table arriving late rather than a new epic's: doc 23 listed /auth
         // from the start and doc 28 section 6 specified the mechanism.
+        // Epic 5 adds the deal and its schedule, and with them C1 — the half of the
+        // double-sell guard Epic 3 could not express because 'deals' did not exist.
+        //
+        // 'payments', 'payment_allocations' and 'commissions' are still absent, and that is
+        // the boundary: these tables carry what the customer is expected to pay. What they
+        // actually paid belongs to Epic 6.
         assertThat(tables).containsExactlyInAnyOrder(
                 "flyway_schema_history",
                 "tenants", "branches", "users", "invitations", "audit_events", "sessions",
                 "leads", "customers", "activities",
                 "developers", "projects", "phases", "units",
-                "reservations");
+                "reservations",
+                "deals", "deal_discounts", "payment_plan_templates",
+                "customer_payment_plans", "installments");
 
         assertThat(tables)
                 .as("no later epic's table may appear before its epic")
-                .doesNotContain("tasks", "deals",
-                        "payment_plan_templates", "customer_payment_plans", "installments",
+                .doesNotContain("tasks",
                         "payments", "payment_allocations", "commissions", "commission_rules");
     }
 

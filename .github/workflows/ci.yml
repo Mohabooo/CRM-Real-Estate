@@ -216,7 +216,7 @@ jobs:
       # lands, deliberately: that edit is the record that new tables were intended.
       - name: Gate - the schema contains only the implemented epics
         run: |
-          EXPECTED="activities audit_events branches customers developers flyway_schema_history invitations leads phases projects reservations sessions tenants units users"
+          EXPECTED="activities audit_events branches customer_payment_plans customers deal_discounts deals developers flyway_schema_history installments invitations leads payment_plan_templates phases projects reservations sessions tenants units users"
           ACTUAL=$(PGPASSWORD=crm psql -h localhost -U crm -d crm -tAc \
             "SELECT table_name FROM information_schema.tables \
              WHERE table_schema='public' AND table_type='BASE TABLE' \
@@ -224,7 +224,7 @@ jobs:
           echo "expected: $EXPECTED"
           echo "actual:   $ACTUAL"
           if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "::error::Schema does not match the implemented epics (Epic 0 through Epic 4, plus V6 authentication)."
+            echo "::error::Schema does not match the implemented epics (Epic 0 through Epic 5)."
             exit 1
           fi
 
