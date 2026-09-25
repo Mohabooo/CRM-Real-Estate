@@ -28,6 +28,7 @@ import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Profile;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -86,13 +87,14 @@ public class DemoDataSeeder implements ApplicationRunner {
     private final UnitService units;
     private final CustomerService customers;
     private final PaymentPlanService paymentPlans;
+    private final JdbcTemplate jdbc;
     private final LeadService leads;
 
     public DemoDataSeeder(PlatformAuthenticationLookup lookup,
                           TenantProvisioningService provisioning,
                           InvitationService invitations, ProjectService projects,
                           UnitService units, CustomerService customers, LeadService leads,
-                          PaymentPlanService paymentPlans) {
+                          PaymentPlanService paymentPlans, JdbcTemplate jdbc) {
         this.lookup = lookup;
         this.provisioning = provisioning;
         this.invitations = invitations;
@@ -100,25 +102,72 @@ public class DemoDataSeeder implements ApplicationRunner {
         this.units = units;
         this.customers = customers;
         this.paymentPlans = paymentPlans;
+        this.jdbc = jdbc;
         this.leads = leads;
     }
 
     @Override
     public void run(ApplicationArguments args) {
-        if (lookup.activeTenantBySlug(SLUG).isPresent()) {
-            log.info("Demo tenant '{}' already exists; sign in as {} / {}",
-                    SLUG, OWNER_EMAIL, PASSWORD);
-            return;
-        }
-
         try {
-            seed();
+            lookup.activeTenantBySlug(SLUG).ifPresentOrElse(this::topUp, this::seed);
         } catch (RuntimeException e) {
             // Never stop the application from starting. A developer with a half-seeded
             // database can drop it; a developer whose application will not boot because of
             // demo data has a much worse afternoon.
             log.warn("Demo data could not be seeded; the application is running without it", e);
         }
+    }
+
+    /**
+     * Adds what a later epic introduced to a database seeded by an earlier one.
+     *
+     * <p>This used to return the moment the demo tenant existed, which is wrong in a way
+     * that only shows up an epic later: payment plan templates arrived with Epic 5, and
+     * every developer whose database predated them got a deal screen saying no plans were
+     * offered — a true sentence about an empty table and a false impression of the feature.
+     * Seeding is per-piece for that reason, and each new epic's demo data adds a case here
+     * rather than relying on everybody dropping their database at the right moment.
+     */
+    private void topUp(UUID tenantId) {
+        UUID ownerId = ownerOf(tenantId);
+        if (ownerId == null) {
+            log.info("Demo tenant '{}' exists but its owner could not be found; leaving it "
+                    + "alone. Drop the database to reseed from scratch.", SLUG);
+            return;
+        }
+        AuthenticatedPrincipal owner =
+                new AuthenticatedPrincipal(ownerId, tenantId, Role.OWNER, null);
+
+        int added = as(tenantId, owner, () -> {
+            if (!paymentPlans.listTemplates().isEmpty()) {
+                return 0;
+            }
+            seedPaymentPlans();
+            return paymentPlans.listTemplates().size();
+        });
+
+        if (added > 0) {
+            log.info("Demo tenant '{}' already existed; added {} payment plan templates it "
+                    + "was missing.", SLUG, added);
+        }
+        log.info("Demo tenant '{}' is ready; sign in as {} / {}", SLUG, OWNER_EMAIL, PASSWORD);
+    }
+
+    /**
+     * The demo owner's user id, read directly because no published service offers a
+     * lookup by email and demo data is not a reason to add one.
+     *
+     * <p>Wrapped in {@code callAs} because the row policies apply to this connection like
+     * any other: with no tenant established the query matches nothing and the top-up would
+     * silently do nothing at all.
+     */
+    private UUID ownerOf(UUID tenantId) {
+        return TenantContext.callAs(tenantId, () -> {
+            List<UUID> ids = jdbc.queryForList(
+                    "SELECT id FROM users WHERE tenant_id = ? AND lower(email) = lower(?)",
+                    UUID.class, tenantId, OWNER_EMAIL);
+            return ids.isEmpty() ? null : ids.get(0);
+        });
     }
 
     private void seed() {
@@ -147,7 +196,7 @@ public class DemoDataSeeder implements ApplicationRunner {
 
             seedUnits(project.id());
             seedParties(branch.id());
-            seedPaymentPlans(project.id());
+            seedPaymentPlans();
             return null;
         });
 
@@ -184,15 +233,16 @@ public class DemoDataSeeder implements ApplicationRunner {
      * Three plan shapes an agent would actually recognise, so the deal flow has something to
      * apply (E5-S3, E5-S4).
      *
-     * <p>All three are tenant-wide rather than scoped to Nile Towers. A project-scoped
-     * template is the narrower case and offering only those would hide the templates from
-     * any second project somebody adds while trying the system out.
+     * <p>All three are tenant-wide rather than scoped to Nile Towers, which is why this
+     * takes no project: a project-scoped template is the narrower case, and offering only
+     * those would hide the templates from any second project somebody adds while trying the
+     * system out.
      *
      * <p>None sets an installment offset, so each takes the documented default of one
      * frequency interval — which is also what makes the month-end behaviour visible on a
      * deal struck on the 29th or later.
      */
-    private void seedPaymentPlans(UUID projectId) {
+    private void seedPaymentPlans() {
         record Plan(String name, String shorthand, DownPayment down, String deliveryPercent,
                     int count, Frequency frequency) { }
 
@@ -208,10 +258,6 @@ public class DemoDataSeeder implements ApplicationRunner {
         plans.forEach(plan -> paymentPlans.createTemplate(null, plan.name(), plan.shorthand(),
                 new PaymentPlanTemplate.Shape(plan.down(), Percentage.of(plan.deliveryPercent()),
                         plan.count(), plan.frequency(), null)));
-
-        // Referenced so the signature stays honest about what this seeds against; the
-        // templates themselves are tenant-wide by design.
-        log.debug("Payment plan templates seeded alongside project {}", projectId);
     }
 
     private void seedParties(UUID branchId) {
